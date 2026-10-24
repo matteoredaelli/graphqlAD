@@ -52,7 +52,18 @@ from msad.user import (
 from strawberry.types import Info
 
 from .context import Context
-from .types import Entries, Entry, Health, OsSummary, OsSummaryItem, User, Users, UserStatus
+from .types import (
+    Entries,
+    Entry,
+    Group,
+    Groups,
+    Health,
+    OsSummary,
+    OsSummaryItem,
+    User,
+    Users,
+    UserStatus,
+)
 
 
 def _ctx(info: Info) -> Context:
@@ -127,9 +138,9 @@ class Query:
     @strawberry.field(description="Groups a user belongs to (nested by default).")
     def user_groups(
         self, info: Info, identifier: str, nested: bool = True, limit: int = 0
-    ) -> Entries:
+    ) -> Groups:
         ctx = _ctx(info)
-        return Entries.of(
+        return Groups.of(
             user_groups(ctx.require_conn(), ctx.base, limit, identifier, nested=nested)
         )
 
@@ -146,24 +157,24 @@ class Query:
 
     # ----- groups -------------------------------------------------------
     @strawberry.field(description="Search groups by cn/name/sAMAccountName/displayName.")
-    def groups(self, info: Info, q: str = "*", limit: int = 0) -> Entries:
+    def groups(self, info: Info, q: str = "*", limit: int = 0) -> Groups:
         ctx = _ctx(info)
-        return Entries.of(find_groups(ctx.require_conn(), ctx.base, q, limit=limit))
+        return Groups.of(find_groups(ctx.require_conn(), ctx.base, q, limit=limit))
 
     @strawberry.field(description="Groups with no direct members.")
-    def empty_groups(self, info: Info, limit: int = 0) -> Entries:
+    def empty_groups(self, info: Info, limit: int = 0) -> Groups:
         ctx = _ctx(info)
-        return Entries.of(list_empty_groups(ctx.require_conn(), ctx.base, limit=limit))
+        return Groups.of(list_empty_groups(ctx.require_conn(), ctx.base, limit=limit))
 
     @strawberry.field(description="Get a single group (sAMAccountName/cn).")
-    def group(self, info: Info, identifier: str) -> Entry:
+    def group(self, info: Info, identifier: str) -> Group | None:
         ctx = _ctx(info)
-        return Entry(entry=get_group(ctx.require_conn(), ctx.base, identifier))
+        return Group.from_entry(get_group(ctx.require_conn(), ctx.base, identifier))
 
-    @strawberry.field(description="Members of a group (direct, or nested).")
+    @strawberry.field(description="Members of a group (direct, or nested); as users.")
     def group_members(
         self, info: Info, identifier: str, nested: bool = False, limit: int = 0
-    ) -> Entries:
+    ) -> Users:
         ctx = _ctx(info)
         try:
             members = group_members(
@@ -171,7 +182,7 @@ class Query:
             )
         except MsadNotFoundError:
             members = []
-        return Entries.of(members)
+        return Users.of(members)
 
     @strawberry.field(description="Is `user` a (nested) member of `group`?")
     def is_member(self, info: Info, group: str, user: str) -> bool | None:
@@ -264,9 +275,9 @@ class Query:
     @strawberry.field(description="Enabled users whose password violates the policy.")
     def password_policy_violations(
         self, info: Info, include_never_set: bool = True, limit: int = 0
-    ) -> Entries:
+    ) -> Users:
         ctx = _ctx(info)
-        return Entries.of(
+        return Users.of(
             get_password_policy_violations(
                 ctx.require_conn(), ctx.base, include_never_set=include_never_set, limit=limit
             )
@@ -275,9 +286,9 @@ class Query:
     @strawberry.field(description="Well-known privileged groups with member counts.")
     def privileged_groups(
         self, info: Info, with_members: bool = False, nested: bool = False
-    ) -> Entries:
+    ) -> Groups:
         ctx = _ctx(info)
-        return Entries.of(
+        return Groups.of(
             get_privileged_groups(
                 ctx.require_conn(), ctx.base, with_members=with_members, nested=nested
             )

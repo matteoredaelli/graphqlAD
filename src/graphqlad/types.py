@@ -143,6 +143,72 @@ class Users:
         return cls(count=len(wrapped), users=wrapped)
 
 
+@strawberry.type(
+    description=(
+        "An Active Directory group. Raw LDAP attributes are available under "
+        "`raw`; a few identity fields are typed scalars. Virtual field "
+        "`managedByUser` expands the `managedBy` DN into the owning `User`."
+    )
+)
+class Group:
+    #: The complete, dynamic LDAP entry.
+    raw: JSON  # type: ignore[valid-type]
+
+    @strawberry.field(description="distinguishedName of the group.")
+    def dn(self) -> str | None:
+        return _first(self._data.get("dn") or self._data.get("distinguishedName"))
+
+    @strawberry.field(description="sAMAccountName of the group.")
+    def sam_account_name(self) -> str | None:
+        return _first(self._data.get("sAMAccountName"))
+
+    @strawberry.field(description="Common name (cn).")
+    def cn(self) -> str | None:
+        return _first(self._data.get("cn"))
+
+    @strawberry.field(description="displayName.")
+    def display_name(self) -> str | None:
+        return _first(self._data.get("displayName"))
+
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the group's owner expanded from the `managedBy` DN into a "
+            "full User (null if absent or unresolvable). The raw DN remains at "
+            "`raw.managedBy`. Resolved lazily: only queried when selected."
+        )
+    )
+    def managed_by_user(self, info: strawberry.Info) -> User | None:
+        dn = _first(self._data.get("managedBy"))
+        if not dn:
+            return None
+        from msad import get_by_dn
+
+        entry = get_by_dn(info.context.require_conn(), str(dn))
+        return User.from_entry(entry)
+
+    #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
+    _data: strawberry.Private[dict[str, Any]]
+
+    @classmethod
+    def from_entry(cls, entry: dict[str, Any] | None) -> Group | None:
+        """Wrap an msad group entry (or None) into a ``Group`` instance."""
+        if entry is None:
+            return None
+        return cls(raw=entry, _data=entry)
+
+
+@strawberry.type(description="A list of groups plus a count.")
+class Groups:
+    count: int
+    groups: list[Group]
+
+    @classmethod
+    def of(cls, items: list[dict[str, Any]] | None) -> Groups:
+        items = items or []
+        wrapped = [g for g in (Group.from_entry(it) for it in items) if g is not None]
+        return cls(count=len(wrapped), groups=wrapped)
+
+
 @strawberry.type(description="One row of the computer-OS summary.")
 class OsSummaryItem:
     operating_system: str

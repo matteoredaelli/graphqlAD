@@ -232,3 +232,108 @@ def test_manager_user_null_when_no_manager(monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert result.errors is None, result.errors
     assert result.data["user"]["managerUser"] is None
+
+
+# ----- Group type / user-typed queries ---------------------------------
+def test_user_returning_queries_use_user_type() -> None:
+    """Queries that return users expose the typed User/Users, not raw JSON."""
+    result = schema.execute_sync(
+        "{ __schema { queryType { fields { name type { name ofType { name } } } } } }"
+    )
+    assert result.errors is None
+    qf = {f["name"]: f["type"] for f in result.data["__schema"]["queryType"]["fields"]}
+
+    def tn(t: dict) -> str | None:
+        return t.get("name") or (t.get("ofType") or {}).get("name")
+
+    assert tn(qf["user"]) == "User"
+    for q in ("users", "inactiveUsers", "groupMembers", "passwordPolicyViolations"):
+        assert tn(qf[q]) == "Users", q
+    assert tn(qf["group"]) == "Group"
+    for q in ("groups", "emptyGroups", "userGroups", "privilegedGroups"):
+        assert tn(qf[q]) == "Groups", q
+
+
+def test_group_type_has_virtual_managed_by() -> None:
+    result = schema.execute_sync('{ __type(name: "Group") { fields { name type { name } } } }')
+    assert result.errors is None
+    fields = {f["name"]: f for f in result.data["__type"]["fields"]}
+    assert "raw" in fields
+    assert {"dn", "samAccountName", "cn", "displayName"} <= set(fields)
+    assert "managedByUser" in fields
+    assert fields["managedByUser"]["type"]["name"] == "User"
+
+
+def test_group_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Group.managedByUser expands the managedBy DN into a User."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    owner_dn = "CN=Owner,OU=IT,DC=example,DC=com"
+    grp = {"cn": "qlik_users", "managedBy": owner_dn}
+    owner = {"sAMAccountName": "owner", "displayName": "The Owner"}
+
+    monkeypatch.setattr(schema_mod, "get_group", lambda c, b, i: grp)
+    import msad
+
+    monkeypatch.setattr(
+        msad, "get_by_dn", lambda c, dn, attributes=None: owner if dn == owner_dn else None
+    )
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    query = """
+    {
+      group(identifier: "qlik_users") {
+        cn
+        raw
+        managedByUser { samAccountName displayName }
+      }
+    }
+    """
+    result = schema.execute_sync(query, context_value=ctx)
+    assert result.errors is None, result.errors
+    g = result.data["group"]
+    assert g["cn"] == "qlik_users"
+    assert g["raw"]["managedBy"] == owner_dn
+    assert g["managedByUser"]["samAccountName"] == "owner"
+    assert g["managedByUser"]["displayName"] == "The Owner"
+
+
+def test_group_members_return_users_with_manager_expansion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """groupMembers returns Users, so managerUser expansion is available on each."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    boss_dn = "CN=Boss,DC=x"
+    members = [
+        {"sAMAccountName": "m1", "manager": boss_dn},
+        {"sAMAccountName": "m2"},
+    ]
+    # schema imported group_members by name; patch the schema-module reference.
+    monkeypatch.setattr(schema_mod, "group_members", lambda *a, **k: members)
+    import msad
+
+    monkeypatch.setattr(
+        msad,
+        "get_by_dn",
+        lambda c, dn, attributes=None: {"sAMAccountName": "boss"} if dn == boss_dn else None,
+    )
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    query = """
+    {
+      groupMembers(identifier: "g") {
+        count
+        users { samAccountName managerUser { samAccountName } }
+      }
+    }
+    """
+    result = schema.execute_sync(query, context_value=ctx)
+    assert result.errors is None, result.errors
+    data = result.data["groupMembers"]
+    assert data["count"] == 2
+    by_sam = {u["samAccountName"]: u for u in data["users"]}
+    assert by_sam["m1"]["managerUser"]["samAccountName"] == "boss"
+    assert by_sam["m2"]["managerUser"] is None

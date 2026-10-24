@@ -158,49 +158,64 @@ A single `Query` type exposes every read operation. Example query:
 }
 ```
 
-### The `User` type and virtual fields
+### Typed `User` / `Group` objects and virtual fields
 
-Queries that return users (`user`, `users`, `inactiveUsers`) expose a typed
-`User` object rather than a bare JSON entry:
+Queries that return users or groups expose typed objects rather than bare JSON
+entries:
+
+- **`User`** — returned by `user`, `users`, `inactiveUsers`, `groupMembers`
+  and `passwordPolicyViolations`.
+- **`Group`** — returned by `group`, `groups`, `emptyGroups`, `userGroups`
+  and `privilegedGroups`.
+
+Both carry:
 
 - `raw` — the complete, dynamic LDAP entry as a `JSON` scalar (nothing is
   lost; every attribute the directory returned is here).
-- a few convenience identity scalars read from `raw`: `dn`, `samAccountName`,
-  `displayName`, `mail`.
+- a few convenience identity scalars read from `raw` (`User`: `dn`,
+  `samAccountName`, `displayName`, `mail`; `Group`: `dn`, `samAccountName`,
+  `cn`, `displayName`).
 - **virtual fields** — derived fields that are *not* raw LDAP attributes.
   Naming convention: a DN-valued attribute expanded into an object gets a
   suffix naming the resolved type. Currently:
-  - `managerUser: User` — resolves the `manager` DN into a full `User`.
+  - `User.managerUser: User` — resolves the `manager` DN into a full `User`.
+  - `Group.managedByUser: User` — resolves the `managedBy` DN into the owning
+    `User`.
 
 Virtual fields are resolved **lazily**: the extra LDAP lookup (`get_by_dn`)
 only happens when you actually select the field. Selecting just `raw` or the
 scalar fields performs no additional query. The raw DN is always still
-available at `raw.manager`.
+available at `raw.manager` / `raw.managedBy`.
 
-> Note on N+1: expanding `managerUser` over a large `users` list issues one
-> lookup per user. This is fine for typical use; batching (a DataLoader) can be
-> added later if needed.
+Because `groupMembers` returns `User` objects, you can expand each member's
+`managerUser` directly; and since the virtual fields are themselves typed, you
+can chain them (e.g. `user { managerUser { managerUser { displayName } } }`).
+
+> Note on N+1: expanding a virtual field over a large list issues one lookup
+> per row. This is fine for typical use; batching (a DataLoader) can be added
+> later if needed.
 
 ### Available queries
 
 - `health`
-- **Users** — `users`, `inactiveUsers`, `user`, `userGroups`, `userStatus`.
+- **Users** (→ `User`) — `users`, `inactiveUsers`, `user`, `userStatus`.
 - **Computers** — `computers`, `staleComputers`, `domainControllers`,
   `osSummary`, `computer`.
-- **Groups** — `groups`, `emptyGroups`, `group`, `groupMembers`, `isMember`.
+- **Groups** (→ `Group`) — `groups`, `emptyGroups`, `group`, `userGroups`,
+  `groupMembers` (→ `User`), `isMember`.
 - **OUs** — `ous`, `ouContents`, `ou`.
-- **Audit** — `domainInfo`, `passwordPolicy`, `passwordPolicyViolations`,
-  `privilegedGroups`, `fsmoRoles`, `trusts`, `sites`, `gpos`, `gpo`,
-  `fineGrainedPasswordPolicies`.
+- **Audit** — `domainInfo`, `passwordPolicy`, `passwordPolicyViolations`
+  (→ `User`), `privilegedGroups` (→ `Group`), `fsmoRoles`, `trusts`, `sites`,
+  `gpos`, `gpo`, `fineGrainedPasswordPolicies`.
 
 ## Notes
 
 - LDAP entries are dynamic (attributes depend on what the directory returns).
-  User-returning queries wrap them in the typed `User` object (with `raw`
-  exposing the full entry); the other queries expose entries directly as an
-  open `JSON` scalar inside typed envelopes (`count` + `entries`, or `entry`).
-  Non-JSON-native values (datetimes, bytes) are coerced to strings for
-  transport.
+  User- and group-returning queries wrap them in the typed `User` / `Group`
+  objects (with `raw` exposing the full entry); the other queries expose
+  entries directly as an open `JSON` scalar inside typed envelopes
+  (`count` + `entries`, or `entry`). Non-JSON-native values (datetimes, bytes)
+  are coerced to strings for transport.
 - A single LDAP connection is opened during the app lifespan and shared across
   requests; it is unbound at shutdown.
 
