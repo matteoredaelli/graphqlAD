@@ -191,6 +191,10 @@ Both carry:
   - `Group.members: [GroupMember!]!` — resolves every `member` DN to its
     **concrete type** (see the union below), keeping nested groups and
     computers.
+  - `Group.memberGroups: [Group!]!` — the nested groups directly in `member`
+    (members whose objectClass is `group`; users/computers excluded).
+  - `Group.memberOfGroups: [Group!]!` — the groups this group is itself a
+    member of (`memberOf`, i.e. group nesting upward).
 
 There is also a **`Computer`** type (`raw` plus `dn`, `samAccountName`, `cn`,
 `dnsHostName`, `operatingSystem`), currently used as a possible member type in

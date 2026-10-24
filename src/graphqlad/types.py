@@ -306,6 +306,38 @@ class Group:
                 out.append(obj)
         return out
 
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the nested groups that are direct members of this group, "
+            "i.e. the `member` DNs whose objectClass is `group` (users and "
+            "computers are excluded). Raw DNs remain at `raw.member`. Resolved "
+            "lazily; unresolvable DNs are skipped."
+        )
+    )
+    async def member_groups(self, info: strawberry.Info) -> list[Group]:
+        dns = _as_list(self._data.get("member"))
+        entries = await _expand_dns(info, dns)
+        out: list[Group] = []
+        for e in entries:
+            if "group" in _object_classes(e):
+                g = Group.from_entry(e)
+                if g is not None:
+                    out.append(g)
+        return out
+
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the groups this group is itself a member of, expanded "
+            "from the `memberOf` DNs into full Group objects (group nesting, "
+            "upward). Raw DNs remain at `raw.memberOf`. Resolved lazily; "
+            "unresolvable DNs are skipped."
+        )
+    )
+    async def member_of_groups(self, info: strawberry.Info) -> list[Group]:
+        dns = _as_list(self._data.get("memberOf"))
+        entries = await _expand_dns(info, dns)
+        return [g for g in (Group.from_entry(e) for e in entries) if g is not None]
+
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
     _data: strawberry.Private[dict[str, Any]]
 

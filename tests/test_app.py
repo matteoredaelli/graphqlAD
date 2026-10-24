@@ -603,3 +603,51 @@ def test_member_users_still_only_users(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.errors is None, result.errors
     sams = [u["samAccountName"] for u in result.data["group"]["memberUsers"]]
     assert "alice" in sams
+
+
+# ----- group nesting (memberGroups / memberOfGroups) -------------------
+def test_group_member_groups_filters_to_groups(monkeypatch: pytest.MonkeyPatch) -> None:
+    """memberGroups keeps only members whose objectClass is group."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    u_dn, g1_dn, g2_dn, c_dn = "CN=U,DC=x", "CN=G1,DC=x", "CN=G2,DC=x", "CN=C,DC=x"
+    grp = {"cn": "parent", "member": [u_dn, g1_dn, g2_dn, c_dn]}
+    monkeypatch.setattr(schema_mod, "get_group", lambda c, b, i: grp)
+
+    db = {
+        u_dn: {"objectClass": ["user"], "sAMAccountName": "alice"},
+        g1_dn: {"objectClass": ["group"], "cn": "sub1"},
+        g2_dn: {"objectClass": ["top", "group"], "cn": "sub2"},
+        c_dn: {"objectClass": ["computer", "user"], "cn": "pc"},
+    }
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = run_query('{ group(identifier: "parent") { memberGroups { cn } } }', ctx)
+    assert result.errors is None, result.errors
+    cns = sorted(g["cn"] for g in result.data["group"]["memberGroups"])
+    assert cns == ["sub1", "sub2"]  # user and computer excluded
+
+
+def test_group_member_of_groups_expands_upward(monkeypatch: pytest.MonkeyPatch) -> None:
+    """memberOfGroups expands the group's own memberOf into Group objects."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    p1, p2 = "CN=Parent1,DC=x", "CN=Parent2,DC=x"
+    grp = {"cn": "child", "memberOf": [p1, p2]}
+    monkeypatch.setattr(schema_mod, "get_group", lambda c, b, i: grp)
+
+    db = {p1: {"objectClass": ["group"], "cn": "P1"}, p2: {"objectClass": ["group"], "cn": "P2"}}
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = run_query('{ group(identifier: "child") { memberOfGroups { cn } } }', ctx)
+    assert result.errors is None, result.errors
+    cns = sorted(g["cn"] for g in result.data["group"]["memberOfGroups"])
+    assert cns == ["P1", "P2"]
