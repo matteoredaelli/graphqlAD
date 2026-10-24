@@ -8,7 +8,7 @@ small typed envelopes that carry predictable fields such as ``count``.
 
 from __future__ import annotations
 
-from typing import Any, NewType
+from typing import Annotated, Any, NewType
 
 import strawberry
 
@@ -191,6 +191,47 @@ class Users:
 
 @strawberry.type(
     description=(
+        "An Active Directory computer account. Raw LDAP attributes are "
+        "available under `raw`; a few identity fields are typed scalars."
+    )
+)
+class Computer:
+    #: The complete, dynamic LDAP entry.
+    raw: JSON  # type: ignore[valid-type]
+
+    @strawberry.field(description="distinguishedName of the computer.")
+    def dn(self) -> str | None:
+        return _first(self._data.get("dn") or self._data.get("distinguishedName"))
+
+    @strawberry.field(description="sAMAccountName (usually ends with '$').")
+    def sam_account_name(self) -> str | None:
+        return _first(self._data.get("sAMAccountName"))
+
+    @strawberry.field(description="Common name (cn).")
+    def cn(self) -> str | None:
+        return _first(self._data.get("cn"))
+
+    @strawberry.field(description="dNSHostName (FQDN).")
+    def dns_host_name(self) -> str | None:
+        return _first(self._data.get("dNSHostName"))
+
+    @strawberry.field(description="operatingSystem.")
+    def operating_system(self) -> str | None:
+        return _first(self._data.get("operatingSystem"))
+
+    #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
+    _data: strawberry.Private[dict[str, Any]]
+
+    @classmethod
+    def from_entry(cls, entry: dict[str, Any] | None) -> Computer | None:
+        """Wrap an msad computer entry (or None) into a ``Computer`` instance."""
+        if entry is None:
+            return None
+        return cls(raw=entry, _data=entry)
+
+
+@strawberry.type(
+    description=(
         "An Active Directory group. Raw LDAP attributes are available under "
         "`raw`; a few identity fields are typed scalars. Virtual field "
         "`managedByUser` expands the `managedBy` DN into the owning `User`."
@@ -244,6 +285,27 @@ class Group:
         entries = await _expand_dns(info, dns)
         return [u for u in (User.from_entry(e) for e in entries) if u is not None]
 
+    @strawberry.field(
+        description=(
+            "VIRTUAL: all direct members of the group, each resolved to its "
+            "concrete type (User, Group or Computer) based on objectClass. "
+            "Unlike `memberUsers`, nested groups and computers are kept. Use "
+            "inline fragments to select fields per type: "
+            "`members { ... on User { samAccountName } ... on Group { cn } "
+            "... on Computer { dnsHostName } }`. Unresolvable members, and "
+            "members of any other object class, are skipped. Resolved lazily."
+        )
+    )
+    async def members(self, info: strawberry.Info) -> list[GroupMember]:
+        dns = _as_list(self._data.get("member"))
+        entries = await _expand_dns(info, dns)
+        out: list[GroupMember] = []
+        for e in entries:
+            obj = _classify(e)
+            if obj is not None:
+                out.append(obj)
+        return out
+
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
     _data: strawberry.Private[dict[str, Any]]
 
@@ -265,6 +327,44 @@ class Groups:
         items = items or []
         wrapped = [g for g in (Group.from_entry(it) for it in items) if g is not None]
         return cls(count=len(wrapped), groups=wrapped)
+
+
+#: A group member resolved to its concrete directory type. Clients select
+#: per-type fields with inline fragments (``... on User`` / ``... on Group`` /
+#: ``... on Computer``).
+GroupMember = Annotated[
+    User | Group | Computer,
+    strawberry.union(
+        "GroupMember",
+        description="A group member: a User, a Group, or a Computer.",
+    ),
+]
+
+
+def _object_classes(entry: dict[str, Any]) -> set[str]:
+    """Return the lower-cased objectClass values of an entry."""
+    raw = entry.get("objectClass") or entry.get("objectclass")
+    values = raw if isinstance(raw, (list, tuple)) else [raw]
+    return {str(v).lower() for v in values if v}
+
+
+def _classify(entry: dict[str, Any] | None) -> User | Group | Computer | None:
+    """Map an LDAP entry to User / Group / Computer by objectClass.
+
+    Order matters: in AD a computer's objectClass contains both ``computer``
+    and ``user``, so ``computer`` is checked first, then ``group``, then
+    ``user``/``person``. Entries of any other class return ``None`` (skipped).
+    """
+    if entry is None:
+        return None
+    classes = _object_classes(entry)
+    if "computer" in classes:
+        return Computer.from_entry(entry)
+    if "group" in classes:
+        return Group.from_entry(entry)
+    if classes & {"user", "person", "organizationalperson", "inetorgperson"}:
+        return User.from_entry(entry)
+    return None
 
 
 @strawberry.type(description="One row of the computer-OS summary.")

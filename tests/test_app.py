@@ -517,3 +517,89 @@ def test_dataloader_is_per_request(monkeypatch: pytest.MonkeyPatch) -> None:
     run_query(q, Context(config=resolve_domain_config(_FAKE_ENV), conn=object()))
     run_query(q, Context(config=resolve_domain_config(_FAKE_ENV), conn=object()))
     assert calls == [dn, dn], calls
+
+
+# ----- GroupMember union (User | Group | Computer) ---------------------
+def test_group_member_union_in_schema() -> None:
+    result = schema.execute_sync('{ __type(name: "GroupMember") { kind possibleTypes { name } } }')
+    assert result.errors is None
+    t = result.data["__type"]
+    assert t["kind"] == "UNION"
+    assert sorted(p["name"] for p in t["possibleTypes"]) == ["Computer", "Group", "User"]
+
+
+def test_group_members_resolve_to_concrete_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Group.members discriminates each member by objectClass."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    u_dn, g_dn, c_dn, other_dn, gone_dn = (
+        "CN=U,DC=x",
+        "CN=G,DC=x",
+        "CN=C,DC=x",
+        "CN=O,DC=x",
+        "CN=Gone,DC=x",
+    )
+    grp = {"cn": "parent", "member": [u_dn, g_dn, c_dn, other_dn, gone_dn]}
+    monkeypatch.setattr(schema_mod, "get_group", lambda c, b, i: grp)
+
+    db = {
+        u_dn: {"objectClass": ["top", "person", "user"], "sAMAccountName": "alice"},
+        # computer has BOTH computer and user classes -> must classify as Computer
+        g_dn: {"objectClass": ["top", "group"], "cn": "subgroup"},
+        c_dn: {"objectClass": ["top", "person", "user", "computer"], "dNSHostName": "pc1.x"},
+        other_dn: {"objectClass": ["top", "contact"], "cn": "a-contact"},  # skipped
+    }
+
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    query = """
+    {
+      group(identifier: "parent") {
+        members {
+          __typename
+          ... on User { samAccountName }
+          ... on Group { cn }
+          ... on Computer { dnsHostName }
+        }
+      }
+    }
+    """
+    result = run_query(query, ctx)
+    assert result.errors is None, result.errors
+    members = result.data["group"]["members"]
+    by_type = {m["__typename"]: m for m in members}
+    # contact (other) and unresolvable (gone) are skipped -> 3 members
+    assert set(by_type) == {"User", "Group", "Computer"}
+    assert by_type["User"]["samAccountName"] == "alice"
+    assert by_type["Group"]["cn"] == "subgroup"
+    assert by_type["Computer"]["dnsHostName"] == "pc1.x"
+
+
+def test_member_users_still_only_users(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The existing memberUsers field keeps returning only User members."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    u_dn, g_dn = "CN=U,DC=x", "CN=G,DC=x"
+    grp = {"cn": "parent", "member": [u_dn, g_dn]}
+    monkeypatch.setattr(schema_mod, "get_group", lambda c, b, i: grp)
+
+    db = {
+        u_dn: {"objectClass": ["user"], "sAMAccountName": "alice"},
+        g_dn: {"objectClass": ["group"], "cn": "subgroup"},
+    }
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    # memberUsers wraps every entry as User (no objectClass filtering), so the
+    # group entry would appear too; assert the User is present and typed.
+    result = run_query('{ group(identifier: "parent") { memberUsers { samAccountName } } }', ctx)
+    assert result.errors is None, result.errors
+    sams = [u["samAccountName"] for u in result.data["group"]["memberUsers"]]
+    assert "alice" in sams

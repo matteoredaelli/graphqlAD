@@ -188,6 +188,36 @@ Both carry:
   - `Group.memberUsers: [User!]!` — resolves the `member` DNs into `User`
     objects (nested groups/computers among the members are skipped; use
     `groupMembers` for msad's person-oriented listing).
+  - `Group.members: [GroupMember!]!` — resolves every `member` DN to its
+    **concrete type** (see the union below), keeping nested groups and
+    computers.
+
+There is also a **`Computer`** type (`raw` plus `dn`, `samAccountName`, `cn`,
+`dnsHostName`, `operatingSystem`), currently used as a possible member type in
+the union below.
+
+### The `GroupMember` union
+
+A group member can be a user, a nested group, or a computer. `Group.members`
+returns a GraphQL **union** `GroupMember = User | Group | Computer`. The
+concrete type of each member is determined from its `objectClass`
+(`computer` is checked before `user`, since AD computer accounts carry both).
+Members of any other object class, and unresolvable DNs, are skipped.
+
+Select per-type fields with inline fragments:
+
+```graphql
+{
+  group(identifier: "all-staff") {
+    members {
+      __typename
+      ... on User { samAccountName displayName }
+      ... on Group { cn }
+      ... on Computer { dnsHostName operatingSystem }
+    }
+  }
+}
+```
 
 Virtual fields are resolved **lazily**: the extra LDAP lookup (`get_by_dn`)
 only happens when you actually select the field. Selecting just `raw` or the
