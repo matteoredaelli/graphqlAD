@@ -176,16 +176,24 @@ Both carry:
   `samAccountName`, `displayName`, `mail`; `Group`: `dn`, `samAccountName`,
   `cn`, `displayName`).
 - **virtual fields** — derived fields that are *not* raw LDAP attributes.
-  Naming convention: a DN-valued attribute expanded into an object gets a
+  Naming convention: a DN-valued attribute expanded into object(s) gets a
   suffix naming the resolved type. Currently:
   - `User.managerUser: User` — resolves the `manager` DN into a full `User`.
+  - `User.memberOfGroups: [Group!]!` — resolves the `memberOf` DNs into
+    `Group` objects.
+  - `User.directReportsUsers: [User!]!` — resolves the `directReports` DNs
+    into `User` objects.
   - `Group.managedByUser: User` — resolves the `managedBy` DN into the owning
     `User`.
+  - `Group.memberUsers: [User!]!` — resolves the `member` DNs into `User`
+    objects (nested groups/computers among the members are skipped; use
+    `groupMembers` for msad's person-oriented listing).
 
 Virtual fields are resolved **lazily**: the extra LDAP lookup (`get_by_dn`)
 only happens when you actually select the field. Selecting just `raw` or the
-scalar fields performs no additional query. The raw DN is always still
-available at `raw.manager` / `raw.managedBy`.
+scalar fields performs no additional query. The raw DNs are always still
+available (`raw.manager`, `raw.memberOf`, `raw.directReports`, `raw.managedBy`,
+`raw.member`). Unresolvable DNs are skipped in list fields.
 
 Because `groupMembers` returns `User` objects, you can expand each member's
 `managerUser` directly; and since the virtual fields are themselves typed, you

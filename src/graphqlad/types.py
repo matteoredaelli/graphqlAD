@@ -70,6 +70,36 @@ def _first(value: Any) -> Any:
     return value
 
 
+def _as_list(value: Any) -> list[Any]:
+    """Normalize a possibly single- or multi-valued attribute to a list.
+
+    ``None`` becomes ``[]``; a scalar becomes a one-element list; a list/tuple
+    is returned as a list (empty/false-y elements dropped).
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [v for v in value if v]
+    return [value]
+
+
+def _expand_dns(info: strawberry.Info, dns: list[Any]) -> list[dict[str, Any]]:
+    """Resolve a list of DNs into entries via msad.get_by_dn (lazy, best-effort).
+
+    Unresolvable DNs are skipped. One lookup per DN (see the N+1 note in the
+    README); only runs when the owning virtual field is selected.
+    """
+    from msad import get_by_dn
+
+    conn = info.context.require_conn()
+    out: list[dict[str, Any]] = []
+    for dn in dns:
+        entry = get_by_dn(conn, str(dn))
+        if entry is not None:
+            out.append(entry)
+    return out
+
+
 @strawberry.type(
     description=(
         "An Active Directory user. Raw LDAP attributes are available under "
@@ -118,6 +148,28 @@ class User:
         conn = ctx.require_conn()
         entry = get_by_dn(conn, str(dn))
         return User.from_entry(entry)
+
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the groups this user is a direct member of, expanded from "
+            "the `memberOf` DNs into full Group objects. Raw DNs remain at "
+            "`raw.memberOf`. Resolved lazily; unresolvable DNs are skipped."
+        )
+    )
+    def member_of_groups(self, info: strawberry.Info) -> list[Group]:
+        dns = _as_list(self._data.get("memberOf"))
+        return [g for g in (Group.from_entry(e) for e in _expand_dns(info, dns)) if g is not None]
+
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the user's direct reports, expanded from the "
+            "`directReports` DNs into full User objects. Raw DNs remain at "
+            "`raw.directReports`. Resolved lazily; unresolvable DNs are skipped."
+        )
+    )
+    def direct_reports_users(self, info: strawberry.Info) -> list[User]:
+        dns = _as_list(self._data.get("directReports"))
+        return [u for u in (User.from_entry(e) for e in _expand_dns(info, dns)) if u is not None]
 
     # ----- internals ----------------------------------------------------
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
@@ -185,6 +237,19 @@ class Group:
 
         entry = get_by_dn(info.context.require_conn(), str(dn))
         return User.from_entry(entry)
+
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the group's direct members, expanded from the `member` "
+            "DNs into full User objects. Raw DNs remain at `raw.member`. Note: "
+            "members may include nested groups/computers; those are skipped "
+            "here (use `groupMembers` for msad's person-oriented listing). "
+            "Resolved lazily; unresolvable DNs are skipped."
+        )
+    )
+    def member_users(self, info: strawberry.Info) -> list[User]:
+        dns = _as_list(self._data.get("member"))
+        return [u for u in (User.from_entry(e) for e in _expand_dns(info, dns)) if u is not None]
 
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
     _data: strawberry.Private[dict[str, Any]]

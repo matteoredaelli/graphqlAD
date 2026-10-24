@@ -337,3 +337,109 @@ def test_group_members_return_users_with_manager_expansion(
     by_sam = {u["samAccountName"]: u for u in data["users"]}
     assert by_sam["m1"]["managerUser"]["samAccountName"] == "boss"
     assert by_sam["m2"]["managerUser"] is None
+
+
+# ----- list-valued virtual fields --------------------------------------
+def _dn_db(mapping: dict[str, dict]):
+    """Build a fake get_by_dn over a {dn: entry} mapping (unknown -> None)."""
+
+    def _get(conn, dn, attributes=None):  # noqa: ANN001
+        return mapping.get(dn)
+
+    return _get
+
+
+def test_user_member_of_groups_expands_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    g1, g2, missing = "CN=G1,DC=x", "CN=G2,DC=x", "CN=Gone,DC=x"
+    employee = {"sAMAccountName": "mrossi", "memberOf": [g1, g2, missing]}
+    monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: employee)
+
+    import msad
+
+    monkeypatch.setattr(
+        msad,
+        "get_by_dn",
+        _dn_db({g1: {"cn": "G1"}, g2: {"cn": "G2"}}),  # missing -> None, skipped
+    )
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = schema.execute_sync(
+        '{ user(identifier: "mrossi") { memberOfGroups { cn } } }', context_value=ctx
+    )
+    assert result.errors is None, result.errors
+    cns = [g["cn"] for g in result.data["user"]["memberOfGroups"]]
+    assert cns == ["G1", "G2"]  # unresolvable DN skipped
+
+
+def test_user_direct_reports_expands_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    r1, r2 = "CN=R1,DC=x", "CN=R2,DC=x"
+    boss = {"sAMAccountName": "boss", "directReports": [r1, r2]}
+    monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: boss)
+
+    import msad
+
+    monkeypatch.setattr(
+        msad,
+        "get_by_dn",
+        _dn_db({r1: {"sAMAccountName": "r1"}, r2: {"sAMAccountName": "r2"}}),
+    )
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = schema.execute_sync(
+        '{ user(identifier: "boss") { directReportsUsers { samAccountName } } }',
+        context_value=ctx,
+    )
+    assert result.errors is None, result.errors
+    sams = sorted(u["samAccountName"] for u in result.data["user"]["directReportsUsers"])
+    assert sams == ["r1", "r2"]
+
+
+def test_group_member_users_expands_single_dn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """member may be a single scalar DN (not a list); it must still expand."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    only = "CN=Solo,DC=x"
+    grp = {"cn": "g", "member": only}  # single-valued
+    monkeypatch.setattr(schema_mod, "get_group", lambda c, b, i: grp)
+
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", _dn_db({only: {"sAMAccountName": "solo"}}))
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = schema.execute_sync(
+        '{ group(identifier: "g") { memberUsers { samAccountName } } }', context_value=ctx
+    )
+    assert result.errors is None, result.errors
+    members = result.data["group"]["memberUsers"]
+    assert [u["samAccountName"] for u in members] == ["solo"]
+
+
+def test_list_virtual_fields_empty_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: {"sAMAccountName": "x"})
+
+    import msad
+
+    def boom(*a, **k):  # noqa: ANN002, ANN003
+        raise AssertionError("get_by_dn must not run for empty lists")
+
+    monkeypatch.setattr(msad, "get_by_dn", boom)
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = schema.execute_sync(
+        '{ user(identifier: "x") { memberOfGroups { cn } directReportsUsers { dn } } }',
+        context_value=ctx,
+    )
+    assert result.errors is None, result.errors
+    assert result.data["user"]["memberOfGroups"] == []
+    assert result.data["user"]["directReportsUsers"] == []
