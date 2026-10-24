@@ -52,7 +52,7 @@ from msad.user import (
 from strawberry.types import Info
 
 from .context import Context
-from .types import Entries, Entry, Health, OsSummary, OsSummaryItem, UserStatus
+from .types import Entries, Entry, Health, OsSummary, OsSummaryItem, User, Users, UserStatus
 
 
 def _ctx(info: Info) -> Context:
@@ -93,9 +93,9 @@ class Query:
         sam: str | None = None,
         department: str | None = None,
         limit: int = 0,
-    ) -> Entries:
+    ) -> Users:
         ctx = _ctx(info)
-        return Entries.of(
+        return Users.of(
             find_users(
                 ctx.require_conn(),
                 ctx.base,
@@ -111,18 +111,18 @@ class Query:
     @strawberry.field(description="Enabled users whose last logon is older than `days`.")
     def inactive_users(
         self, info: Info, days: int = 90, include_never: bool = False, limit: int = 0
-    ) -> Entries:
+    ) -> Users:
         ctx = _ctx(info)
-        return Entries.of(
+        return Users.of(
             find_inactive_users(
                 ctx.require_conn(), ctx.base, days=days, include_never=include_never, limit=limit
             )
         )
 
     @strawberry.field(description="Get a single user (sAMAccountName/UPN/mail/cn).")
-    def user(self, info: Info, identifier: str) -> Entry:
+    def user(self, info: Info, identifier: str) -> User | None:
         ctx = _ctx(info)
-        return Entry(entry=get_user(ctx.require_conn(), ctx.base, identifier))
+        return User.from_entry(get_user(ctx.require_conn(), ctx.base, identifier))
 
     @strawberry.field(description="Groups a user belongs to (nested by default).")
     def user_groups(

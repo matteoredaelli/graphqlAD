@@ -129,3 +129,106 @@ def test_data_query_errors_without_connection(monkeypatch: pytest.MonkeyPatch) -
         body = resp.json()
         assert body.get("errors"), "expected a GraphQL error without a connection"
         assert body["data"] is None
+
+
+# ----- User type / virtual fields --------------------------------------
+def test_user_type_has_virtual_manager_field() -> None:
+    result = schema.execute_sync(
+        '{ __type(name: "User") { fields { name type { kind name ofType { name } } } } }'
+    )
+    assert result.errors is None
+    fields = {f["name"]: f for f in result.data["__type"]["fields"]}
+    # Raw LDAP passthrough plus a few typed identity fields.
+    assert "raw" in fields
+    assert {"dn", "samAccountName", "displayName", "mail"} <= set(fields)
+    # The virtual field exists and resolves to a User (recursive expansion).
+    assert "managerUser" in fields
+    assert fields["managerUser"]["type"]["name"] == "User"
+
+
+def test_manager_user_resolves_dn_lazily(monkeypatch: pytest.MonkeyPatch) -> None:
+    """managerUser expands raw.manager via get_by_dn, only when selected."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    boss_dn = "CN=Anna Bianchi,OU=Staff,DC=example,DC=com"
+    employee = {"sAMAccountName": "mrossi", "displayName": "Mario Rossi", "manager": boss_dn}
+    boss = {"sAMAccountName": "abianchi", "displayName": "Anna Bianchi"}
+
+    calls: list[str] = []
+
+    def fake_get_user(conn, base, identifier):  # noqa: ANN001
+        return employee
+
+    def fake_get_by_dn(conn, dn, attributes=None):  # noqa: ANN001
+        calls.append(dn)
+        return boss if dn == boss_dn else None
+
+    monkeypatch.setattr(schema_mod, "get_user", fake_get_user)
+    # get_by_dn is imported lazily inside the resolver, so patch it on msad.
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", fake_get_by_dn)
+
+    # A context with a non-None (dummy) connection so require_conn() passes.
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+
+    query = """
+    {
+      user(identifier: "mrossi") {
+        samAccountName
+        raw
+        managerUser { samAccountName displayName }
+      }
+    }
+    """
+    result = schema.execute_sync(query, context_value=ctx)
+    assert result.errors is None, result.errors
+    user = result.data["user"]
+    assert user["samAccountName"] == "mrossi"
+    # Raw DN is preserved untouched.
+    assert user["raw"]["manager"] == boss_dn
+    # Virtual field expanded into an object.
+    assert user["managerUser"]["samAccountName"] == "abianchi"
+    assert user["managerUser"]["displayName"] == "Anna Bianchi"
+    # get_by_dn was called exactly once, with the manager DN.
+    assert calls == [boss_dn]
+
+
+def test_manager_user_not_queried_when_not_selected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Selecting only raw fields must not trigger a get_by_dn lookup."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    employee = {"sAMAccountName": "mrossi", "manager": "CN=Boss,DC=x"}
+
+    monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: employee)
+
+    import msad
+
+    def boom(*a, **k):  # noqa: ANN002, ANN003
+        raise AssertionError("get_by_dn must not be called")
+
+    monkeypatch.setattr(msad, "get_by_dn", boom)
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = schema.execute_sync(
+        '{ user(identifier: "mrossi") { samAccountName } }', context_value=ctx
+    )
+    assert result.errors is None, result.errors
+    assert result.data["user"]["samAccountName"] == "mrossi"
+
+
+def test_manager_user_null_when_no_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    employee = {"sAMAccountName": "ceo"}  # no manager attribute
+    monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: employee)
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    result = schema.execute_sync(
+        '{ user(identifier: "ceo") { managerUser { samAccountName } } }', context_value=ctx
+    )
+    assert result.errors is None, result.errors
+    assert result.data["user"]["managerUser"] is None

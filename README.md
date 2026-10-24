@@ -130,10 +130,22 @@ A single `Query` type exposes every read operation. Example query:
 
   users(surname: "Rossi", department: "IT", limit: 10) {
     count
-    entries          # dynamic LDAP entries, as a JSON scalar
+    users {
+      samAccountName
+      displayName
+      raw                  # the full dynamic LDAP entry, as a JSON scalar
+      managerUser {        # VIRTUAL: `manager` DN expanded into a User
+        displayName
+        managerUser { displayName }   # ...recursively, if you want
+      }
+    }
   }
 
-  user(identifier: "mrossi") { entry }
+  user(identifier: "mrossi") {
+    displayName
+    raw
+    managerUser { displayName mail }
+  }
 
   userStatus(identifier: "mrossi") {
     isDisabled
@@ -145,6 +157,29 @@ A single `Query` type exposes every read operation. Example query:
   osSummary { count items { operatingSystem count } }
 }
 ```
+
+### The `User` type and virtual fields
+
+Queries that return users (`user`, `users`, `inactiveUsers`) expose a typed
+`User` object rather than a bare JSON entry:
+
+- `raw` — the complete, dynamic LDAP entry as a `JSON` scalar (nothing is
+  lost; every attribute the directory returned is here).
+- a few convenience identity scalars read from `raw`: `dn`, `samAccountName`,
+  `displayName`, `mail`.
+- **virtual fields** — derived fields that are *not* raw LDAP attributes.
+  Naming convention: a DN-valued attribute expanded into an object gets a
+  suffix naming the resolved type. Currently:
+  - `managerUser: User` — resolves the `manager` DN into a full `User`.
+
+Virtual fields are resolved **lazily**: the extra LDAP lookup (`get_by_dn`)
+only happens when you actually select the field. Selecting just `raw` or the
+scalar fields performs no additional query. The raw DN is always still
+available at `raw.manager`.
+
+> Note on N+1: expanding `managerUser` over a large `users` list issues one
+> lookup per user. This is fine for typical use; batching (a DataLoader) can be
+> added later if needed.
 
 ### Available queries
 
@@ -160,10 +195,12 @@ A single `Query` type exposes every read operation. Example query:
 
 ## Notes
 
-- LDAP entries are dynamic (attributes depend on what the directory returns),
-  so each entry is exposed as an open `JSON` scalar inside typed envelopes
-  (`count` + `entries`, or `entry`). Non-JSON-native values (datetimes, bytes)
-  are coerced to strings for transport.
+- LDAP entries are dynamic (attributes depend on what the directory returns).
+  User-returning queries wrap them in the typed `User` object (with `raw`
+  exposing the full entry); the other queries expose entries directly as an
+  open `JSON` scalar inside typed envelopes (`count` + `entries`, or `entry`).
+  Non-JSON-native values (datetimes, bytes) are coerced to strings for
+  transport.
 - A single LDAP connection is opened during the app lifespan and shared across
   requests; it is unbound at shutdown.
 
