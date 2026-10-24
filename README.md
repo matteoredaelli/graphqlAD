@@ -199,9 +199,24 @@ Because `groupMembers` returns `User` objects, you can expand each member's
 `managerUser` directly; and since the virtual fields are themselves typed, you
 can chain them (e.g. `user { managerUser { managerUser { displayName } } }`).
 
-> Note on N+1: expanding a virtual field over a large list issues one lookup
-> per row. This is fine for typical use; batching (a DataLoader) can be added
-> later if needed.
+### DN resolution and the DataLoader
+
+Virtual fields resolve DNs through a **per-request DataLoader** (one instance
+per GraphQL request, created lazily on first use). It provides:
+
+- **Within-request caching (deduplication)**: the same DN is resolved only
+  once per request, even if several fields reference it (e.g. a manager who is
+  also listed under `member`/`directReports`). It caches *what was loaded* on
+  demand — it does **not** pre-fetch anything you did not ask for.
+- **Batching**: concurrent `managerUser` / `memberUsers` / … resolutions in the
+  same event-loop tick are grouped into a single `load_fn` invocation.
+
+The cache lives only for the request, so results never go stale between
+requests. Since `msad.get_by_dn` resolves one DN at a time (the DN is used as
+the search base), the loader issues one lookup per *distinct* DN; it does not
+collapse several DNs into a single LDAP query. The main win is deduplication
+and avoiding repeated lookups of the same DN, plus not blocking the event loop
+(the synchronous msad calls run in a worker thread).
 
 ### Available queries
 

@@ -83,21 +83,18 @@ def _as_list(value: Any) -> list[Any]:
     return [value]
 
 
-def _expand_dns(info: strawberry.Info, dns: list[Any]) -> list[dict[str, Any]]:
-    """Resolve a list of DNs into entries via msad.get_by_dn (lazy, best-effort).
+async def _expand_dns(info: strawberry.Info, dns: list[Any]) -> list[dict[str, Any]]:
+    """Resolve a list of DNs into entries via the per-request DataLoader.
 
-    Unresolvable DNs are skipped. One lookup per DN (see the N+1 note in the
-    README); only runs when the owning virtual field is selected.
+    Uses ``load_many`` so all DNs in this field are batched together and
+    deduplicated/cached for the request. Unresolvable DNs (loader returns
+    ``None``) are skipped. Only runs when the owning virtual field is selected.
     """
-    from msad import get_by_dn
-
-    conn = info.context.require_conn()
-    out: list[dict[str, Any]] = []
-    for dn in dns:
-        entry = get_by_dn(conn, str(dn))
-        if entry is not None:
-            out.append(entry)
-    return out
+    if not dns:
+        return []
+    loader = info.context.dn_loader
+    results = await loader.load_many([str(dn) for dn in dns])
+    return [e for e in results if e is not None]
 
 
 @strawberry.type(
@@ -137,16 +134,11 @@ class User:
             "selected."
         )
     )
-    def manager_user(self, info: strawberry.Info) -> User | None:
+    async def manager_user(self, info: strawberry.Info) -> User | None:
         dn = _first(self._data.get("manager"))
         if not dn:
             return None
-        # Imported here to keep this module free of schema-level imports.
-        from msad import get_by_dn
-
-        ctx = info.context
-        conn = ctx.require_conn()
-        entry = get_by_dn(conn, str(dn))
+        entry = await info.context.dn_loader.load(str(dn))
         return User.from_entry(entry)
 
     @strawberry.field(
@@ -156,9 +148,10 @@ class User:
             "`raw.memberOf`. Resolved lazily; unresolvable DNs are skipped."
         )
     )
-    def member_of_groups(self, info: strawberry.Info) -> list[Group]:
+    async def member_of_groups(self, info: strawberry.Info) -> list[Group]:
         dns = _as_list(self._data.get("memberOf"))
-        return [g for g in (Group.from_entry(e) for e in _expand_dns(info, dns)) if g is not None]
+        entries = await _expand_dns(info, dns)
+        return [g for g in (Group.from_entry(e) for e in entries) if g is not None]
 
     @strawberry.field(
         description=(
@@ -167,9 +160,10 @@ class User:
             "`raw.directReports`. Resolved lazily; unresolvable DNs are skipped."
         )
     )
-    def direct_reports_users(self, info: strawberry.Info) -> list[User]:
+    async def direct_reports_users(self, info: strawberry.Info) -> list[User]:
         dns = _as_list(self._data.get("directReports"))
-        return [u for u in (User.from_entry(e) for e in _expand_dns(info, dns)) if u is not None]
+        entries = await _expand_dns(info, dns)
+        return [u for u in (User.from_entry(e) for e in entries) if u is not None]
 
     # ----- internals ----------------------------------------------------
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
@@ -229,13 +223,11 @@ class Group:
             "`raw.managedBy`. Resolved lazily: only queried when selected."
         )
     )
-    def managed_by_user(self, info: strawberry.Info) -> User | None:
+    async def managed_by_user(self, info: strawberry.Info) -> User | None:
         dn = _first(self._data.get("managedBy"))
         if not dn:
             return None
-        from msad import get_by_dn
-
-        entry = get_by_dn(info.context.require_conn(), str(dn))
+        entry = await info.context.dn_loader.load(str(dn))
         return User.from_entry(entry)
 
     @strawberry.field(
@@ -247,9 +239,10 @@ class Group:
             "Resolved lazily; unresolvable DNs are skipped."
         )
     )
-    def member_users(self, info: strawberry.Info) -> list[User]:
+    async def member_users(self, info: strawberry.Info) -> list[User]:
         dns = _as_list(self._data.get("member"))
-        return [u for u in (User.from_entry(e) for e in _expand_dns(info, dns)) if u is not None]
+        entries = await _expand_dns(info, dns)
+        return [u for u in (User.from_entry(e) for e in entries) if u is not None]
 
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
     _data: strawberry.Private[dict[str, Any]]

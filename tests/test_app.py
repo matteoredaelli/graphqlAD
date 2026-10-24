@@ -7,12 +7,25 @@ the directory is unreachable.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
 from graphqlad.app import create_app
 from graphqlad.config import ConfigError, resolve_domain_config
 from graphqlad.schema import schema
+
+
+def run_query(query: str, ctx: object):
+    """Execute a query through the async schema path.
+
+    Needed because virtual-field resolvers are async and drive a DataLoader,
+    which requires a running event loop (execute_sync cannot). Works for sync
+    resolvers too.
+    """
+    return asyncio.run(schema.execute(query, context_value=ctx))
+
 
 # A config that is valid to *build* but points at an unresolvable host, so the
 # connection fails fast without contacting a real directory.
@@ -182,7 +195,7 @@ def test_manager_user_resolves_dn_lazily(monkeypatch: pytest.MonkeyPatch) -> Non
       }
     }
     """
-    result = schema.execute_sync(query, context_value=ctx)
+    result = run_query(query, ctx)
     assert result.errors is None, result.errors
     user = result.data["user"]
     assert user["samAccountName"] == "mrossi"
@@ -212,9 +225,7 @@ def test_manager_user_not_queried_when_not_selected(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(msad, "get_by_dn", boom)
 
     ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
-    result = schema.execute_sync(
-        '{ user(identifier: "mrossi") { samAccountName } }', context_value=ctx
-    )
+    result = run_query('{ user(identifier: "mrossi") { samAccountName } }', ctx)
     assert result.errors is None, result.errors
     assert result.data["user"]["samAccountName"] == "mrossi"
 
@@ -227,9 +238,7 @@ def test_manager_user_null_when_no_manager(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: employee)
 
     ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
-    result = schema.execute_sync(
-        '{ user(identifier: "ceo") { managerUser { samAccountName } } }', context_value=ctx
-    )
+    result = run_query('{ user(identifier: "ceo") { managerUser { samAccountName } } }', ctx)
     assert result.errors is None, result.errors
     assert result.data["user"]["managerUser"] is None
 
@@ -290,7 +299,7 @@ def test_group_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None
       }
     }
     """
-    result = schema.execute_sync(query, context_value=ctx)
+    result = run_query(query, ctx)
     assert result.errors is None, result.errors
     g = result.data["group"]
     assert g["cn"] == "qlik_users"
@@ -330,7 +339,7 @@ def test_group_members_return_users_with_manager_expansion(
       }
     }
     """
-    result = schema.execute_sync(query, context_value=ctx)
+    result = run_query(query, ctx)
     assert result.errors is None, result.errors
     data = result.data["groupMembers"]
     assert data["count"] == 2
@@ -366,9 +375,7 @@ def test_user_member_of_groups_expands_list(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
-    result = schema.execute_sync(
-        '{ user(identifier: "mrossi") { memberOfGroups { cn } } }', context_value=ctx
-    )
+    result = run_query('{ user(identifier: "mrossi") { memberOfGroups { cn } } }', ctx)
     assert result.errors is None, result.errors
     cns = [g["cn"] for g in result.data["user"]["memberOfGroups"]]
     assert cns == ["G1", "G2"]  # unresolvable DN skipped
@@ -391,9 +398,8 @@ def test_user_direct_reports_expands_list(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
-    result = schema.execute_sync(
-        '{ user(identifier: "boss") { directReportsUsers { samAccountName } } }',
-        context_value=ctx,
+    result = run_query(
+        '{ user(identifier: "boss") { directReportsUsers { samAccountName } } }', ctx
     )
     assert result.errors is None, result.errors
     sams = sorted(u["samAccountName"] for u in result.data["user"]["directReportsUsers"])
@@ -414,9 +420,7 @@ def test_group_member_users_expands_single_dn(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(msad, "get_by_dn", _dn_db({only: {"sAMAccountName": "solo"}}))
 
     ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
-    result = schema.execute_sync(
-        '{ group(identifier: "g") { memberUsers { samAccountName } } }', context_value=ctx
-    )
+    result = run_query('{ group(identifier: "g") { memberUsers { samAccountName } } }', ctx)
     assert result.errors is None, result.errors
     members = result.data["group"]["memberUsers"]
     assert [u["samAccountName"] for u in members] == ["solo"]
@@ -436,10 +440,80 @@ def test_list_virtual_fields_empty_when_absent(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(msad, "get_by_dn", boom)
 
     ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
-    result = schema.execute_sync(
-        '{ user(identifier: "x") { memberOfGroups { cn } directReportsUsers { dn } } }',
-        context_value=ctx,
+    result = run_query(
+        '{ user(identifier: "x") { memberOfGroups { cn } directReportsUsers { dn } } }', ctx
     )
     assert result.errors is None, result.errors
     assert result.data["user"]["memberOfGroups"] == []
     assert result.data["user"]["directReportsUsers"] == []
+
+
+# ----- DataLoader dedup / within-request caching -----------------------
+def test_dataloader_dedups_repeated_dn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same DN resolved from multiple places runs get_by_dn only once.
+
+    A manager who is also one of the user's direct reports appears twice in the
+    query, but the per-request DataLoader must resolve that DN a single time.
+    """
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    shared_dn = "CN=Shared,DC=x"
+    employee = {
+        "sAMAccountName": "mrossi",
+        "manager": shared_dn,
+        "directReports": [shared_dn],  # same DN as the manager
+    }
+    monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: employee)
+
+    calls: list[str] = []
+
+    def counting_get_by_dn(conn, dn, attributes=None):  # noqa: ANN001
+        calls.append(dn)
+        return {"sAMAccountName": "shared"} if dn == shared_dn else None
+
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", counting_get_by_dn)
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    query = """
+    {
+      user(identifier: "mrossi") {
+        managerUser { samAccountName }
+        directReportsUsers { samAccountName }
+      }
+    }
+    """
+    result = run_query(query, ctx)
+    assert result.errors is None, result.errors
+    assert result.data["user"]["managerUser"]["samAccountName"] == "shared"
+    assert [u["samAccountName"] for u in result.data["user"]["directReportsUsers"]] == ["shared"]
+    # Resolved once despite being requested from two fields.
+    assert calls == [shared_dn], calls
+
+
+def test_dataloader_is_per_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fresh context (new request) does not reuse another request's cache."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    dn = "CN=Boss,DC=x"
+    monkeypatch.setattr(
+        schema_mod, "get_user", lambda c, b, i: {"sAMAccountName": "u", "manager": dn}
+    )
+    calls: list[str] = []
+
+    def counting(conn, d, attributes=None):  # noqa: ANN001
+        calls.append(d)
+        return {"sAMAccountName": "boss"}
+
+    import msad
+
+    monkeypatch.setattr(msad, "get_by_dn", counting)
+
+    q = '{ user(identifier: "u") { managerUser { samAccountName } } }'
+    # Two separate requests -> two separate contexts -> two lookups total.
+    run_query(q, Context(config=resolve_domain_config(_FAKE_ENV), conn=object()))
+    run_query(q, Context(config=resolve_domain_config(_FAKE_ENV), conn=object()))
+    assert calls == [dn, dn], calls
