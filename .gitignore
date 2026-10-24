@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Build artifacts
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# uv
+# (uv.lock IS committed)
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
