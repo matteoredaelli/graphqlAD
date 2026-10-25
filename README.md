@@ -62,10 +62,17 @@ Authentication:
 uv sync
 ```
 
-The `msad` dependency is pulled from PyPI (`msad>=0.8.2`). Because `msad`
-depends on `gssapi`, installing it builds a C extension against the system
-Kerberos libraries, so you need the krb5 development headers available (e.g.
-`libkrb5-dev` + `krb5-config` on Debian/Ubuntu, `krb5` via Homebrew on macOS).
+The `msad` dependency is pulled from PyPI (`msad>=0.9`). Kerberos (SASL/GSSAPI)
+authentication is optional: `msad`'s `gssapi` dependency is a native extension
+that needs the system Kerberos dev headers to build (e.g. `libkrb5-dev` +
+`krb5-config` on Debian/Ubuntu, `krb5-devel` on RHEL/Fedora, `krb5` via
+Homebrew on macOS). If you only authenticate with user/password, skip it
+entirely; to enable Kerberos, sync the `kerberos` extra instead:
+
+```bash
+uv sync --extra kerberos
+# or: pip install 'graphqlad[kerberos]'
+```
 
 Common developer tasks run through the `Makefile`:
 

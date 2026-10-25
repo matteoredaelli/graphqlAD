@@ -274,7 +274,7 @@ dependencies = [
 
 [package.optional-dependencies]
 kerberos = [
-    { name = "msad" },
+    { name = "msad", extra = ["kerberos"] },
 ]
 
 [package.dev-dependencies]
@@ -287,8 +287,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "msad", specifier = ">=0.9.0" },
-    { name = "msad", extras = ["kerberos"], marker = "extra == 'kerberos'", specifier = ">=0.9.0" },
+    { name = "msad", specifier = ">=0.10.0" },
+    { name = "msad", extras = ["kerberos"], marker = "extra == 'kerberos'", specifier = ">=0.10.0" },
     { name = "strawberry-graphql", extras = ["fastapi"], specifier = ">=0.240" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
@@ -513,18 +513,22 @@ wheels = [
 
 [[package]]
 name = "msad"
-version = "0.9.0"
+version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
-    { name = "gssapi" },
     { name = "ldap3" },
     { name = "pydantic" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4b/a4/324f5612bc6b48de90a608e3a0ec932a8c17fd6103aecea31a7d1622bc5d/msad-0.9.0.tar.gz", hash = "sha256:d8e246fdcc01b9340358d52334a0bb97e1ed46605437a1c02d2cc9f5aa3930b2", size = 107935, upload-time = "2026-10-25T18:14:15.131Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/06/fd79e580d92859f138e91b4f3215e10f6d01e3465885518f89375adfa080/msad-0.10.0.tar.gz", hash = "sha256:2699872e4f530d1d8b81419b9e1d90c9efbba8657864032e9b46629036a76d94", size = 108431, upload-time = "2026-10-25T19:32:17.539Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/4e/7eee5f2b44f11e77c4a97c440b99de8ea338217ef44f7bf6bbc431613f85/msad-0.9.0-py3-none-any.whl", hash = "sha256:908d0f3fac5c091a46b4bdb07b51ca4e1c6ac405394345cae2927264c97109f6", size = 50591, upload-time = "2026-10-25T18:14:13.913Z" },
+    { url = "https://files.pythonhosted.org/packages/87/c6/f70fbd8ec441d7f3f2f0e92bfe1c1d70370f2cf390b5ebbb90847b9679f4/msad-0.10.0-py3-none-any.whl", hash = "sha256:44d39fce9ddb87364bc4b60ddb10381a381ea7e1a432e50303902b4149d70436", size = 50972, upload-time = "2026-10-25T19:32:16.453Z" },
+]
+
+[package.optional-dependencies]
+kerberos = [
+    { name = "gssapi" },
 ]
 
 [[package]]
