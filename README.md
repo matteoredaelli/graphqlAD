@@ -158,23 +158,27 @@ A single `Query` type exposes every read operation. Example query:
 }
 ```
 
-### Typed `User` / `Group` objects and virtual fields
+### Typed `User` / `Group` / `Computer` / `Ou` objects and virtual fields
 
-Queries that return users or groups expose typed objects rather than bare JSON
-entries:
+Queries that return users, groups, computers or OUs expose typed objects
+rather than bare JSON entries:
 
-- **`User`** — returned by `user`, `users`, `inactiveUsers`, `groupMembers`
-  and `passwordPolicyViolations`.
-- **`Group`** — returned by `group`, `groups`, `emptyGroups`, `userGroups`
-  and `privilegedGroups`.
+- **`User`** — returned by `user`, `users`, `inactiveUsers`, `groupMembers`,
+  `passwordPolicyViolations`, `neverExpiringAccounts`, `expiredAccounts`,
+  `passwordNotRequired`, `kerberosPreauthNotRequired` and `notDelegated`.
+- **`Group`** — returned by `group`, `groups`, `emptyGroups`,
+  `securityGroups`, `userGroups` and `privilegedGroups`.
+- **`Computer`** — returned by `computer` and `computers`.
+- **`Ou`** — returned by `ou` and `ous`.
 
-Both carry:
+All of them carry:
 
 - `raw` — the complete, dynamic LDAP entry as a `JSON` scalar (nothing is
   lost; every attribute the directory returned is here).
 - a few convenience identity scalars read from `raw` (`User`: `dn`,
   `samAccountName`, `displayName`, `mail`; `Group`: `dn`, `samAccountName`,
-  `cn`, `displayName`).
+  `cn`, `displayName`; `Computer`: `dn`, `samAccountName`, `cn`,
+  `dnsHostName`, `operatingSystem`; `Ou`: `dn`, `ou`, `description`).
 - **virtual fields** — derived fields that are *not* raw LDAP attributes.
   Naming convention: a DN-valued attribute expanded into object(s) gets a
   suffix naming the resolved type. Currently:
@@ -195,10 +199,13 @@ Both carry:
     (members whose objectClass is `group`; users/computers excluded).
   - `Group.memberOfGroups: [Group!]!` — the groups this group is itself a
     member of (`memberOf`, i.e. group nesting upward).
+  - `Computer.managedByUser: User` — resolves the computer's `managedBy` DN
+    into the owning `User`.
+  - `Ou.managedByUser: User` — resolves the OU's `managedBy` DN into the
+    owning `User`.
 
-There is also a **`Computer`** type (`raw` plus `dn`, `samAccountName`, `cn`,
-`dnsHostName`, `operatingSystem`), currently used as a possible member type in
-the union below.
+`Computer` is also used as a possible member type in the `GroupMember` union
+below.
 
 ### The `GroupMember` union
 
@@ -229,6 +236,10 @@ scalar fields performs no additional query. The raw DNs are always still
 available (`raw.manager`, `raw.memberOf`, `raw.directReports`, `raw.managedBy`,
 `raw.member`). Unresolvable DNs are skipped in list fields.
 
+Note: `ouContents` (listing arbitrary objects under an OU) and `contacts`
+still return the generic `Entries`/`Entry` JSON envelope, since their results
+mix object types or have no DN-valued attributes worth expanding.
+
 Because `groupMembers` returns `User` objects, you can expand each member's
 `managerUser` directly; and since the virtual fields are themselves typed, you
 can chain them (e.g. `user { managerUser { managerUser { displayName } } }`).
@@ -255,12 +266,17 @@ and avoiding repeated lookups of the same DN, plus not blocking the event loop
 ### Available queries
 
 - `health`
-- **Users** (→ `User`) — `users`, `inactiveUsers`, `user`, `userStatus`.
-- **Computers** — `computers`, `staleComputers`, `domainControllers`,
+- **Users** (→ `User`) — `users`, `inactiveUsers`, `user`, `userStatus`,
+  `neverExpiringAccounts`, `expiredAccounts`, `passwordNotRequired`,
+  `kerberosPreauthNotRequired`, `notDelegated` (risk checks).
+- **Computers** (→ `Computer`) — `computers` (optionally
+  `excludeDomainControllers: true`), `staleComputers`, `domainControllers`,
   `osSummary`, `computer`.
-- **Groups** (→ `Group`) — `groups`, `emptyGroups`, `group`, `userGroups`,
-  `groupMembers` (→ `User`), `isMember`.
-- **OUs** — `ous`, `ouContents`, `ou`.
+- **Groups** (→ `Group`) — `groups`, `emptyGroups`, `securityGroups`
+  (optionally `scope: "global" | "domain_local" | "universal"`), `group`,
+  `userGroups`, `groupMembers` (→ `User`), `isMember`.
+- **Contacts** — `contacts`.
+- **OUs** (→ `Ou`) — `ous`, `ou`; `ouContents` (mixed object types).
 - **Audit** — `domainInfo`, `passwordPolicy`, `passwordPolicyViolations`
   (→ `User`), `privilegedGroups` (→ `Group`), `fsmoRoles`, `trusts`, `sites`,
   `gpos`, `gpo`, `fineGrainedPasswordPolicies`.
@@ -268,9 +284,10 @@ and avoiding repeated lookups of the same DN, plus not blocking the event loop
 ## Notes
 
 - LDAP entries are dynamic (attributes depend on what the directory returns).
-  User- and group-returning queries wrap them in the typed `User` / `Group`
-  objects (with `raw` exposing the full entry); the other queries expose
-  entries directly as an open `JSON` scalar inside typed envelopes
+  User-, group-, computer- and OU-returning queries wrap them in the typed
+  `User` / `Group` / `Computer` / `Ou` objects (with `raw` exposing the full
+  entry); the other queries (e.g. `contacts`, `ouContents`, audit reads)
+  expose entries directly as an open `JSON` scalar inside typed envelopes
   (`count` + `entries`, or `entry`). Non-JSON-native values (datetimes, bytes)
   are coerced to strings for transport.
 - A single LDAP connection is opened during the app lifespan and shared across

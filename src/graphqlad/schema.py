@@ -15,9 +15,16 @@ import strawberry
 from msad import (
     check_connection,
     find_computers,
+    find_contacts,
+    find_expired_accounts,
     find_groups,
     find_inactive_users,
+    find_kerberos_preauth_not_required,
+    find_never_expiring_accounts,
+    find_not_delegated,
     find_ous,
+    find_password_not_required,
+    find_security_groups,
     find_stale_computers,
     find_users,
     get_computer,
@@ -53,6 +60,8 @@ from strawberry.types import Info
 
 from .context import Context
 from .types import (
+    Computer,
+    Computers,
     Entries,
     Entry,
     Group,
@@ -60,6 +69,8 @@ from .types import (
     Health,
     OsSummary,
     OsSummaryItem,
+    Ou,
+    Ous,
     User,
     Users,
     UserStatus,
@@ -155,6 +166,37 @@ class Query:
             has_expired_password=has_expired_password(conn, base, identifier),
         )
 
+    @strawberry.field(description="Users whose account (not password) never expires.")
+    def never_expiring_accounts(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_never_expiring_accounts(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Users whose accountExpires date is in the past.")
+    def expired_accounts(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_expired_accounts(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(
+        description="Risk: users with the PASSWD_NOTREQD UAC flag (account may have no password)."
+    )
+    def password_not_required(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_password_not_required(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(
+        description="Risk: users not requiring Kerberos pre-auth (AS-REP roasting exposure)."
+    )
+    def kerberos_preauth_not_required(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(
+            find_kerberos_preauth_not_required(ctx.require_conn(), ctx.base, limit=limit)
+        )
+
+    @strawberry.field(description="Risk: accounts flagged sensitive-and-cannot-be-delegated.")
+    def not_delegated(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_not_delegated(ctx.require_conn(), ctx.base, limit=limit))
+
     # ----- groups -------------------------------------------------------
     @strawberry.field(description="Search groups by cn/name/sAMAccountName/displayName.")
     def groups(self, info: Info, q: str = "*", limit: int = 0) -> Groups:
@@ -192,6 +234,16 @@ class Query:
         except MsadNotFoundError:
             return None
 
+    @strawberry.field(
+        description="Security-enabled groups, optionally restricted to one scope "
+        "(global/domain_local/universal)."
+    )
+    def security_groups(self, info: Info, scope: str | None = None, limit: int = 0) -> Groups:
+        ctx = _ctx(info)
+        return Groups.of(
+            find_security_groups(ctx.require_conn(), ctx.base, scope=scope, limit=limit)
+        )
+
     # ----- computers ----------------------------------------------------
     @strawberry.field(description="Find computers by name/dns/os (* wildcards ok).")
     def computers(
@@ -200,11 +252,20 @@ class Query:
         name: str | None = None,
         dns: str | None = None,
         os: str | None = None,
+        exclude_domain_controllers: bool = False,
         limit: int = 0,
-    ) -> Entries:
+    ) -> Computers:
         ctx = _ctx(info)
-        return Entries.of(
-            find_computers(ctx.require_conn(), ctx.base, name=name, dns=dns, os=os, limit=limit)
+        return Computers.of(
+            find_computers(
+                ctx.require_conn(),
+                ctx.base,
+                name=name,
+                dns=dns,
+                os=os,
+                exclude_domain_controllers=exclude_domain_controllers,
+                limit=limit,
+            )
         )
 
     @strawberry.field(description="Computers whose last logon is older than `days`.")
@@ -237,15 +298,21 @@ class Query:
         return OsSummary(count=len(rows), items=rows)
 
     @strawberry.field(description="Get a single computer (sAMAccountName/cn/dNSHostName).")
-    def computer(self, info: Info, identifier: str) -> Entry:
+    def computer(self, info: Info, identifier: str) -> Computer | None:
         ctx = _ctx(info)
-        return Entry(entry=get_computer(ctx.require_conn(), ctx.base, identifier))
+        return Computer.from_entry(get_computer(ctx.require_conn(), ctx.base, identifier))
+
+    # ----- contacts -------------------------------------------------------
+    @strawberry.field(description="Find contacts by cn/mail/displayName (* wildcards ok).")
+    def contacts(self, info: Info, q: str | None = None, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(find_contacts(ctx.require_conn(), ctx.base, q, limit=limit))
 
     # ----- OUs ----------------------------------------------------------
     @strawberry.field(description="Find organizational units by name (* wildcards ok).")
-    def ous(self, info: Info, name: str | None = None, limit: int = 0) -> Entries:
+    def ous(self, info: Info, name: str | None = None, limit: int = 0) -> Ous:
         ctx = _ctx(info)
-        return Entries.of(find_ous(ctx.require_conn(), ctx.base, name=name, limit=limit))
+        return Ous.of(find_ous(ctx.require_conn(), ctx.base, name=name, limit=limit))
 
     @strawberry.field(description="List objects directly under an OU (by its DN).")
     def ou_contents(
@@ -257,9 +324,9 @@ class Query:
         )
 
     @strawberry.field(description="Get a single OU (ou name or full DN).")
-    def ou(self, info: Info, identifier: str) -> Entry:
+    def ou(self, info: Info, identifier: str) -> Ou | None:
         ctx = _ctx(info)
-        return Entry(entry=get_ou(ctx.require_conn(), ctx.base, identifier))
+        return Ou.from_entry(get_ou(ctx.require_conn(), ctx.base, identifier))
 
     # ----- audit --------------------------------------------------------
     @strawberry.field(description="Domain object: security-relevant settings and metadata.")

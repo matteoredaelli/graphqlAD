@@ -308,6 +308,96 @@ def test_group_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None
     assert g["managedByUser"]["displayName"] == "The Owner"
 
 
+def test_computer_type_has_virtual_managed_by() -> None:
+    result = schema.execute_sync('{ __type(name: "Computer") { fields { name type { name } } } }')
+    assert result.errors is None
+    fields = {f["name"]: f for f in result.data["__type"]["fields"]}
+    assert "raw" in fields
+    assert {"dn", "samAccountName", "cn", "dnsHostName", "operatingSystem"} <= set(fields)
+    assert "managedByUser" in fields
+    assert fields["managedByUser"]["type"]["name"] == "User"
+
+
+def test_computer_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Computer.managedByUser expands the managedBy DN into a User."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    owner_dn = "CN=Owner,OU=IT,DC=example,DC=com"
+    pc = {"sAMAccountName": "PC001$", "managedBy": owner_dn}
+    owner = {"sAMAccountName": "owner", "displayName": "The Owner"}
+
+    monkeypatch.setattr(schema_mod, "get_computer", lambda c, b, i: pc)
+    import msad
+
+    monkeypatch.setattr(
+        msad, "get_by_dn", lambda c, dn, attributes=None: owner if dn == owner_dn else None
+    )
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    query = """
+    {
+      computer(identifier: "PC001") {
+        samAccountName
+        raw
+        managedByUser { samAccountName displayName }
+      }
+    }
+    """
+    result = run_query(query, ctx)
+    assert result.errors is None, result.errors
+    c = result.data["computer"]
+    assert c["samAccountName"] == "PC001$"
+    assert c["raw"]["managedBy"] == owner_dn
+    assert c["managedByUser"]["samAccountName"] == "owner"
+    assert c["managedByUser"]["displayName"] == "The Owner"
+
+
+def test_ou_type_has_virtual_managed_by() -> None:
+    result = schema.execute_sync('{ __type(name: "Ou") { fields { name type { name } } } }')
+    assert result.errors is None
+    fields = {f["name"]: f for f in result.data["__type"]["fields"]}
+    assert "raw" in fields
+    assert {"dn", "ou", "description"} <= set(fields)
+    assert "managedByUser" in fields
+    assert fields["managedByUser"]["type"]["name"] == "User"
+
+
+def test_ou_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ou.managedByUser expands the managedBy DN into a User."""
+    from graphqlad import schema as schema_mod
+    from graphqlad.context import Context
+
+    owner_dn = "CN=Owner,OU=IT,DC=example,DC=com"
+    ou_entry = {"ou": "Sales", "managedBy": owner_dn}
+    owner = {"sAMAccountName": "owner", "displayName": "The Owner"}
+
+    monkeypatch.setattr(schema_mod, "get_ou", lambda c, b, i: ou_entry)
+    import msad
+
+    monkeypatch.setattr(
+        msad, "get_by_dn", lambda c, dn, attributes=None: owner if dn == owner_dn else None
+    )
+
+    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    query = """
+    {
+      ou(identifier: "Sales") {
+        ou
+        raw
+        managedByUser { samAccountName displayName }
+      }
+    }
+    """
+    result = run_query(query, ctx)
+    assert result.errors is None, result.errors
+    o = result.data["ou"]
+    assert o["ou"] == "Sales"
+    assert o["raw"]["managedBy"] == owner_dn
+    assert o["managedByUser"]["samAccountName"] == "owner"
+    assert o["managedByUser"]["displayName"] == "The Owner"
+
+
 def test_group_members_return_users_with_manager_expansion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

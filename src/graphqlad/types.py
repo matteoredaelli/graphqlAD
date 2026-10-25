@@ -219,6 +219,20 @@ class Computer:
     def operating_system(self) -> str | None:
         return _first(self._data.get("operatingSystem"))
 
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the computer's owner expanded from the `managedBy` DN into "
+            "a full User (null if absent or unresolvable). The raw DN remains at "
+            "`raw.managedBy`. Resolved lazily: only queried when selected."
+        )
+    )
+    async def managed_by_user(self, info: strawberry.Info) -> User | None:
+        dn = _first(self._data.get("managedBy"))
+        if not dn:
+            return None
+        entry = await info.context.dn_loader.load(str(dn))
+        return User.from_entry(entry)
+
     #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
     _data: strawberry.Private[dict[str, Any]]
 
@@ -228,6 +242,18 @@ class Computer:
         if entry is None:
             return None
         return cls(raw=entry, _data=entry)
+
+
+@strawberry.type(description="A list of computers plus a count.")
+class Computers:
+    count: int
+    computers: list[Computer]
+
+    @classmethod
+    def of(cls, items: list[dict[str, Any]] | None) -> Computers:
+        items = items or []
+        wrapped = [c for c in (Computer.from_entry(it) for it in items) if c is not None]
+        return cls(count=len(wrapped), computers=wrapped)
 
 
 @strawberry.type(
@@ -359,6 +385,67 @@ class Groups:
         items = items or []
         wrapped = [g for g in (Group.from_entry(it) for it in items) if g is not None]
         return cls(count=len(wrapped), groups=wrapped)
+
+
+@strawberry.type(
+    description=(
+        "An Active Directory organizational unit. Raw LDAP attributes are "
+        "available under `raw`; a few identity fields are typed scalars. "
+        "Virtual field `managedByUser` expands the `managedBy` DN into the "
+        "owning `User`."
+    )
+)
+class Ou:
+    #: The complete, dynamic LDAP entry.
+    raw: JSON  # type: ignore[valid-type]
+
+    @strawberry.field(description="distinguishedName of the OU.")
+    def dn(self) -> str | None:
+        return _first(self._data.get("dn") or self._data.get("distinguishedName"))
+
+    @strawberry.field(description="The ou (name) attribute.")
+    def ou(self) -> str | None:
+        return _first(self._data.get("ou"))
+
+    @strawberry.field(description="description.")
+    def description(self) -> str | None:
+        return _first(self._data.get("description"))
+
+    @strawberry.field(
+        description=(
+            "VIRTUAL: the OU's owner expanded from the `managedBy` DN into a "
+            "full User (null if absent or unresolvable). The raw DN remains at "
+            "`raw.managedBy`. Resolved lazily: only queried when selected."
+        )
+    )
+    async def managed_by_user(self, info: strawberry.Info) -> User | None:
+        dn = _first(self._data.get("managedBy"))
+        if not dn:
+            return None
+        entry = await info.context.dn_loader.load(str(dn))
+        return User.from_entry(entry)
+
+    #: Backing dict for the resolvers above. Not exposed as a GraphQL field.
+    _data: strawberry.Private[dict[str, Any]]
+
+    @classmethod
+    def from_entry(cls, entry: dict[str, Any] | None) -> Ou | None:
+        """Wrap an msad OU entry (or None) into an ``Ou`` instance."""
+        if entry is None:
+            return None
+        return cls(raw=entry, _data=entry)
+
+
+@strawberry.type(description="A list of OUs plus a count.")
+class Ous:
+    count: int
+    ous: list[Ou]
+
+    @classmethod
+    def of(cls, items: list[dict[str, Any]] | None) -> Ous:
+        items = items or []
+        wrapped = [o for o in (Ou.from_entry(it) for it in items) if o is not None]
+        return cls(count=len(wrapped), ous=wrapped)
 
 
 #: A group member resolved to its concrete directory type. Clients select

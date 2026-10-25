@@ -282,7 +282,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "msad", specifier = ">=0.8.2" },
+    { name = "msad", specifier = ">=0.9.0" },
     { name = "strawberry-graphql", extras = ["fastapi"], specifier = ">=0.240" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
@@ -506,7 +506,7 @@ wheels = [
 
 [[package]]
 name = "msad"
-version = "0.8.2"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
@@ -515,9 +515,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/37/1e/fd3dccea32d790a6c8fb342d89a99e9b35698f6406bc02968df6ca5d2dc1/msad-0.8.2.tar.gz", hash = "sha256:3e06ae4a7ee55f5b1c31420808e0199d051e8547dd2c030311a107edea62ec0b", size = 102994, upload-time = "2026-10-24T08:59:41.832Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4b/a4/324f5612bc6b48de90a608e3a0ec932a8c17fd6103aecea31a7d1622bc5d/msad-0.9.0.tar.gz", hash = "sha256:d8e246fdcc01b9340358d52334a0bb97e1ed46605437a1c02d2cc9f5aa3930b2", size = 107935, upload-time = "2026-10-25T18:14:15.131Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/18/5c/4726857bd4f88371c888803452e1cc2e657d18912ac78b299e3c30eefa3b/msad-0.8.2-py3-none-any.whl", hash = "sha256:85c10892940eba01ccfaa87746d21cb2af66ebe9f8777e4ae88fd8d8dd8deb4b", size = 47842, upload-time = "2026-10-24T08:59:40.559Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/4e/7eee5f2b44f11e77c4a97c440b99de8ea338217ef44f7bf6bbc431613f85/msad-0.9.0-py3-none-any.whl", hash = "sha256:908d0f3fac5c091a46b4bdb07b51ca4e1c6ac405394345cae2927264c97109f6", size = 50591, upload-time = "2026-10-25T18:14:13.913Z" },
 ]
 
 [[package]]
