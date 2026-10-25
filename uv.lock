@@ -272,6 +272,11 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+kerberos = [
+    { name = "msad" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "httpx" },
@@ -283,9 +288,11 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "msad", specifier = ">=0.9.0" },
+    { name = "msad", extras = ["kerberos"], marker = "extra == 'kerberos'", specifier = ">=0.9.0" },
     { name = "strawberry-graphql", extras = ["fastapi"], specifier = ">=0.240" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
+provides-extras = ["kerberos"]
 
 [package.metadata.requires-dev]
 dev = [
