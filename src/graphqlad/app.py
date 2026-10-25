@@ -24,6 +24,7 @@ from fastapi import FastAPI, Request
 from msad import connect
 from strawberry.fastapi import GraphQLRouter
 
+from . import __version__
 from .context import Context
 from .schema import schema
 
@@ -93,7 +94,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="graphqlAD",
-        version="0.1.0",
+        version=__version__,
         summary="Read-only GraphQL interface over Active Directory (msad).",
         lifespan=lifespan,
     )
@@ -109,7 +110,7 @@ def create_app() -> FastAPI:
     def root() -> dict[str, str]:
         return {
             "service": "graphqlad",
-            "version": "0.1.0",
+            "version": __version__,
             "graphql": "/graphql",
             "graphiql": "/graphql" if graphiql else "disabled",
         }

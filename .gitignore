@@ -15,6 +15,9 @@ venv/
 # uv
 # (uv.lock IS committed)
 
+# hatch-vcs generated version file (written at build time)
+src/graphqlad/_version.py
+
 # Test / lint caches
 .pytest_cache/
 .ruff_cache/
