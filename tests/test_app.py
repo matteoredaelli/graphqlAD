@@ -42,7 +42,7 @@ _FAKE_ENV = {
 
 # ----- config -----------------------------------------------------------
 def test_env_overrides_win() -> None:
-    cfg = resolve_domain_config(_FAKE_ENV)
+    cfg = resolve_domain_config(env=_FAKE_ENV)
     assert cfg.host == "dc.invalid.example"
     assert cfg.base == "dc=example,dc=com"
     assert cfg.port == 636
@@ -53,11 +53,11 @@ def test_env_overrides_win() -> None:
 
 def test_missing_required_fields_raise() -> None:
     with pytest.raises(ConfigError):
-        resolve_domain_config({"MSAD_CONFIG_FILE": "/nonexistent/none.toml"})
+        resolve_domain_config(env={"MSAD_CONFIG_FILE": "/nonexistent/none.toml"})
 
 
 def test_kerberos_when_no_credentials() -> None:
-    cfg = resolve_domain_config({"MSAD_HOST": "dc.x", "MSAD_BASE": "dc=x"})
+    cfg = resolve_domain_config(env={"MSAD_HOST": "dc.x", "MSAD_BASE": "dc=x"})
     assert cfg.uses_kerberos is True
 
 
@@ -184,7 +184,7 @@ def test_manager_user_resolves_dn_lazily(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(msad, "get_by_dn", fake_get_by_dn)
 
     # A context with a non-None (dummy) connection so require_conn() passes.
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
 
     query = """
     {
@@ -224,7 +224,7 @@ def test_manager_user_not_queried_when_not_selected(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(msad, "get_by_dn", boom)
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query('{ user(identifier: "mrossi") { samAccountName } }', ctx)
     assert result.errors is None, result.errors
     assert result.data["user"]["samAccountName"] == "mrossi"
@@ -237,7 +237,7 @@ def test_manager_user_null_when_no_manager(monkeypatch: pytest.MonkeyPatch) -> N
     employee = {"sAMAccountName": "ceo"}  # no manager attribute
     monkeypatch.setattr(schema_mod, "get_user", lambda c, b, i: employee)
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query('{ user(identifier: "ceo") { managerUser { samAccountName } } }', ctx)
     assert result.errors is None, result.errors
     assert result.data["user"]["managerUser"] is None
@@ -289,7 +289,7 @@ def test_group_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None
         msad, "get_by_dn", lambda c, dn, attributes=None: owner if dn == owner_dn else None
     )
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     query = """
     {
       group(identifier: "qlik_users") {
@@ -334,7 +334,7 @@ def test_computer_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> N
         msad, "get_by_dn", lambda c, dn, attributes=None: owner if dn == owner_dn else None
     )
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     query = """
     {
       computer(identifier: "PC001") {
@@ -379,7 +379,7 @@ def test_ou_managed_by_user_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
         msad, "get_by_dn", lambda c, dn, attributes=None: owner if dn == owner_dn else None
     )
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     query = """
     {
       ou(identifier: "Sales") {
@@ -420,7 +420,7 @@ def test_group_members_return_users_with_manager_expansion(
         lambda c, dn, attributes=None: {"sAMAccountName": "boss"} if dn == boss_dn else None,
     )
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     query = """
     {
       groupMembers(identifier: "g") {
@@ -464,7 +464,7 @@ def test_user_member_of_groups_expands_list(monkeypatch: pytest.MonkeyPatch) -> 
         _dn_db({g1: {"cn": "G1"}, g2: {"cn": "G2"}}),  # missing -> None, skipped
     )
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query('{ user(identifier: "mrossi") { memberOfGroups { cn } } }', ctx)
     assert result.errors is None, result.errors
     cns = [g["cn"] for g in result.data["user"]["memberOfGroups"]]
@@ -487,7 +487,7 @@ def test_user_direct_reports_expands_list(monkeypatch: pytest.MonkeyPatch) -> No
         _dn_db({r1: {"sAMAccountName": "r1"}, r2: {"sAMAccountName": "r2"}}),
     )
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query(
         '{ user(identifier: "boss") { directReportsUsers { samAccountName } } }', ctx
     )
@@ -509,7 +509,7 @@ def test_group_member_users_expands_single_dn(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(msad, "get_by_dn", _dn_db({only: {"sAMAccountName": "solo"}}))
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query('{ group(identifier: "g") { memberUsers { samAccountName } } }', ctx)
     assert result.errors is None, result.errors
     members = result.data["group"]["memberUsers"]
@@ -529,7 +529,7 @@ def test_list_virtual_fields_empty_when_absent(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(msad, "get_by_dn", boom)
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query(
         '{ user(identifier: "x") { memberOfGroups { cn } directReportsUsers { dn } } }', ctx
     )
@@ -566,7 +566,7 @@ def test_dataloader_dedups_repeated_dn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(msad, "get_by_dn", counting_get_by_dn)
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     query = """
     {
       user(identifier: "mrossi") {
@@ -604,8 +604,8 @@ def test_dataloader_is_per_request(monkeypatch: pytest.MonkeyPatch) -> None:
 
     q = '{ user(identifier: "u") { managerUser { samAccountName } } }'
     # Two separate requests -> two separate contexts -> two lookups total.
-    run_query(q, Context(config=resolve_domain_config(_FAKE_ENV), conn=object()))
-    run_query(q, Context(config=resolve_domain_config(_FAKE_ENV), conn=object()))
+    run_query(q, Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object()))
+    run_query(q, Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object()))
     assert calls == [dn, dn], calls
 
 
@@ -645,7 +645,7 @@ def test_group_members_resolve_to_concrete_types(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     query = """
     {
       group(identifier: "parent") {
@@ -686,7 +686,7 @@ def test_member_users_still_only_users(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     # memberUsers wraps every entry as User (no objectClass filtering), so the
     # group entry would appear too; assert the User is present and typed.
     result = run_query('{ group(identifier: "parent") { memberUsers { samAccountName } } }', ctx)
@@ -715,7 +715,7 @@ def test_group_member_groups_filters_to_groups(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query('{ group(identifier: "parent") { memberGroups { cn } } }', ctx)
     assert result.errors is None, result.errors
     cns = sorted(g["cn"] for g in result.data["group"]["memberGroups"])
@@ -736,7 +736,7 @@ def test_group_member_of_groups_expands_upward(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(msad, "get_by_dn", lambda conn, dn, attributes=None: db.get(dn))
 
-    ctx = Context(config=resolve_domain_config(_FAKE_ENV), conn=object())
+    ctx = Context(config=resolve_domain_config(env=_FAKE_ENV), conn=object())
     result = run_query('{ group(identifier: "child") { memberOfGroups { cn } } }', ctx)
     assert result.errors is None, result.errors
     cns = sorted(g["cn"] for g in result.data["group"]["memberOfGroups"])

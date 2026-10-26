@@ -13,7 +13,7 @@ dependencies = [
     "strawberry-graphql[fastapi]>=0.240",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "msad>=0.10.0",
+    "msad>=0.11.0",
 ]
 
 classifiers = [
@@ -31,7 +31,7 @@ classifiers = [
 # Kerberos (SASL/GSSAPI) authentication against AD. Needs system Kerberos dev
 # headers to build (see msad's README). Skip if you only use user/password.
 kerberos = [
-    "msad[kerberos]>=0.10.0",
+    "msad[kerberos]>=0.11.0",
 ]
 
 [project.urls]

@@ -45,6 +45,17 @@ union via `_classify()` in `types.py`, which switches on `objectClass`
 you add a new typed object that can be a group member, extend `_classify`
 and the union, not just the type itself.
 
+## Config resolution is centralized in msad — don't reimplement it
+
+`src/graphqlad/config.py` is a two-line re-export (`ConfigError =
+msad.MsadConfigError`, `resolve_domain_config = msad.resolve_domain_config`).
+The actual TOML + `MSAD_*` env-override logic lives in msad's
+`resolve_domain_config()` (shared with restAD and mcpAD — see msad's
+AGENTS.md). If you need a new overridable connection field, add it in msad,
+not here. `app.py` calls `resolve_domain_config()` with no args (reads the
+real `os.environ`); tests pass a dict via the `env=` keyword (positional
+calls bind to `domain`, not `env` — don't drop the keyword).
+
 ## Kerberos is an optional extra
 
 `[project.optional-dependencies] kerberos = ["msad[kerberos]>=..."]` mirrors
