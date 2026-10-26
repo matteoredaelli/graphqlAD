@@ -8,6 +8,7 @@ small typed envelopes that carry predictable fields such as ``count``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Any, NewType
 
 import strawberry
@@ -27,7 +28,14 @@ def _json_safe(value: Any) -> Any:
     """Best-effort conversion of ldap3-decoded values to JSON-native types."""
     import datetime as _dt
 
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
+        # Covers plain dicts *and* ldap3's own CaseInsensitiveDict, which is
+        # what every msad entry actually is at runtime. isinstance(value,
+        # dict) is False for it, so checking only `dict` here would skip
+        # this branch entirely and fall through to the str(value) catch-all
+        # below — i.e. the whole entry serialized as one opaque string
+        # instead of a proper nested JSON object (this hit every `raw`
+        # field, since that's a direct copy of the msad entry).
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
@@ -40,6 +48,10 @@ def _json_safe(value: Any) -> Any:
             return value.hex()
     if isinstance(value, (_dt.datetime, _dt.date)):
         return value.isoformat()
+    if isinstance(value, _dt.timedelta):
+        # e.g. maxPwdAge / lockoutDuration from passwordPolicy / domainInfo:
+        # ldap3 decodes these AD "interval" attributes into timedelta.
+        return str(value)
     return str(value)
 
 
