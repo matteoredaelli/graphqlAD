@@ -14,19 +14,27 @@ from __future__ import annotations
 import strawberry
 from msad import (
     check_connection,
+    find_admin_count_accounts,
     find_computers,
     find_contacts,
+    find_distribution_groups,
+    find_empty_ous,
     find_expired_accounts,
     find_groups,
     find_inactive_users,
     find_kerberos_preauth_not_required,
+    find_must_change_password,
     find_never_expiring_accounts,
     find_not_delegated,
     find_ous,
     find_password_not_required,
+    find_recently_created,
+    find_recently_modified,
     find_security_groups,
+    find_service_accounts,
     find_stale_computers,
     find_users,
+    find_users_without_email,
     get_computer,
     get_domain_info,
     get_gpo,
@@ -114,6 +122,9 @@ class Query:
         mail: str | None = None,
         sam: str | None = None,
         department: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
+        country: str | None = None,
         limit: int = 0,
     ) -> Users:
         ctx = _ctx(info)
@@ -126,6 +137,9 @@ class Query:
                 mail=mail,
                 sam=sam,
                 department=department,
+                city=city,
+                state=state,
+                country=country,
                 limit=limit,
             )
         )
@@ -197,6 +211,30 @@ class Query:
         ctx = _ctx(info)
         return Users.of(find_not_delegated(ctx.require_conn(), ctx.base, limit=limit))
 
+    @strawberry.field(
+        description="Risk: users with a Service Principal Name set (Kerberoasting exposure)."
+    )
+    def service_accounts(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_service_accounts(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(
+        description="Users with adminCount=1 (current or stale protected-admin marker)."
+    )
+    def admin_count_accounts(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_admin_count_accounts(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Enabled users who must change their password at next logon.")
+    def must_change_password(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_must_change_password(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Data-quality check: users with no mail attribute set.")
+    def users_without_email(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(find_users_without_email(ctx.require_conn(), ctx.base, limit=limit))
+
     # ----- groups -------------------------------------------------------
     @strawberry.field(description="Search groups by cn/name/sAMAccountName/displayName.")
     def groups(self, info: Info, q: str = "*", limit: int = 0) -> Groups:
@@ -243,6 +281,11 @@ class Query:
         return Groups.of(
             find_security_groups(ctx.require_conn(), ctx.base, scope=scope, limit=limit)
         )
+
+    @strawberry.field(description="Distribution groups (complement of security_groups).")
+    def distribution_groups(self, info: Info, limit: int = 0) -> Groups:
+        ctx = _ctx(info)
+        return Groups.of(find_distribution_groups(ctx.require_conn(), ctx.base, limit=limit))
 
     # ----- computers ----------------------------------------------------
     @strawberry.field(description="Find computers by name/dns/os (* wildcards ok).")
@@ -328,6 +371,11 @@ class Query:
         ctx = _ctx(info)
         return Ou.from_entry(get_ou(ctx.require_conn(), ctx.base, identifier))
 
+    @strawberry.field(description="Organizational units with no nested sub-OU.")
+    def empty_ous(self, info: Info, limit: int = 0) -> Ous:
+        ctx = _ctx(info)
+        return Ous.of(find_empty_ous(ctx.require_conn(), ctx.base, limit=limit))
+
     # ----- audit --------------------------------------------------------
     @strawberry.field(description="Domain object: security-relevant settings and metadata.")
     def domain_info(self, info: Info) -> Entry:
@@ -391,6 +439,34 @@ class Query:
         ctx = _ctx(info)
         return Entries.of(
             list_fine_grained_password_policies(ctx.require_conn(), ctx.base, limit=limit)
+        )
+
+    @strawberry.field(
+        description="Objects whose whenChanged is within the last `days` days, "
+        "optionally restricted to one objectClass."
+    )
+    def recently_modified(
+        self, info: Info, days: int = 7, object_class: str | None = None, limit: int = 0
+    ) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(
+            find_recently_modified(
+                ctx.require_conn(), ctx.base, days=days, object_class=object_class, limit=limit
+            )
+        )
+
+    @strawberry.field(
+        description="Objects whose whenCreated is within the last `days` days, "
+        "optionally restricted to one objectClass."
+    )
+    def recently_created(
+        self, info: Info, days: int = 7, object_class: str | None = None, limit: int = 0
+    ) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(
+            find_recently_created(
+                ctx.require_conn(), ctx.base, days=days, object_class=object_class, limit=limit
+            )
         )
 
 
