@@ -55,6 +55,7 @@ from msad import (
     list_trusts,
     summarize_computer_os,
     user_groups,
+    whoami,
 )
 from msad.exceptions import MsadNotFoundError
 from msad.group import group_members
@@ -82,6 +83,7 @@ from .types import (
     User,
     Users,
     UserStatus,
+    WhoAmI,
 )
 
 
@@ -111,6 +113,13 @@ class Query:
             auth=str(status.get("auth", auth)),
             error=status.get("error"),
         )
+
+    @strawberry.field(
+        description='Identity bound as (RFC 4532 "Who Am I?"); works with Kerberos too.'
+    )
+    def whoami(self, info: Info) -> WhoAmI:
+        ctx = _ctx(info)
+        return WhoAmI(authzid=whoami(ctx.require_conn()))
 
     # ----- users --------------------------------------------------------
     @strawberry.field(description="Find users by field (all ANDed; * wildcards ok).")

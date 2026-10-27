@@ -524,3 +524,8 @@ class Health:
     target: str
     auth: str
     error: str | None = None
+
+
+@strawberry.type(description='Result of the RFC 4532 "Who Am I?" extended operation.')
+class WhoAmI:
+    authzid: str | None = None
