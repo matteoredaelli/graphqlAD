@@ -46,16 +46,26 @@ from msad import (
     get_privileged_groups,
     get_user,
     is_member,
+    list_authorized_dhcp_servers,
+    list_dfs_namespaces,
+    list_dns_records,
+    list_dns_zones,
     list_domain_controllers,
     list_empty_groups,
     list_fine_grained_password_policies,
     list_fsmo_roles,
     list_gpos,
+    list_servers,
+    list_site_links,
     list_sites,
+    list_subnets,
     list_trusts,
     summarize_computer_os,
     user_groups,
     whoami,
+)
+from msad import (
+    decode_entries as _decode_entries,
 )
 from msad.exceptions import MsadNotFoundError
 from msad.group import group_members
@@ -432,6 +442,48 @@ class Query:
     def sites(self, info: Info, limit: int = 0) -> Entries:
         ctx = _ctx(info)
         return Entries.of(list_sites(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="AD subnets (CIDR -> site) from the Configuration NC.")
+    def subnets(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_subnets(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="AD site links (inter-site replication topology).")
+    def site_links(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_site_links(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Directory servers (DCs) from the Configuration NC.")
+    def servers(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_servers(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="AD-integrated DNS zones.")
+    def dns_zones(self, info: Info, zone_base: str | None = None, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(
+            list_dns_zones(ctx.require_conn(), ctx.base, zone_base=zone_base, limit=limit)
+        )
+
+    @strawberry.field(description="DNS records of an AD-integrated zone (dnsRecord decoded).")
+    def dns_records(
+        self, info: Info, zone: str, zone_base: str | None = None, limit: int = 0
+    ) -> Entries:
+        ctx = _ctx(info)
+        entries = list_dns_records(
+            ctx.require_conn(), ctx.base, zone, zone_base=zone_base, limit=limit
+        )
+        return Entries.of(_decode_entries(entries))
+
+    @strawberry.field(description="DHCP servers authorized in AD (authorization only).")
+    def authorized_dhcp_servers(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_authorized_dhcp_servers(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Domain-based DFS namespace roots.")
+    def dfs_namespaces(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_dfs_namespaces(ctx.require_conn(), ctx.base, limit=limit))
 
     @strawberry.field(description="Group Policy Objects.")
     def gpos(self, info: Info, limit: int = 0) -> Entries:
