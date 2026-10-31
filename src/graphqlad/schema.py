@@ -16,7 +16,9 @@ from msad import (
     check_connection,
     find_admin_count_accounts,
     find_computers,
+    find_computers_by_os,
     find_contacts,
+    find_disabled_computers,
     find_distribution_groups,
     find_empty_ous,
     find_expired_accounts,
@@ -44,6 +46,8 @@ from msad import (
     get_password_policy,
     get_password_policy_violations,
     get_privileged_groups,
+    get_site,
+    get_subnet,
     get_user,
     is_member,
     list_authorized_dhcp_servers,
@@ -341,6 +345,26 @@ class Query:
             )
         )
 
+    @strawberry.field(description="Find computers by operatingSystem (* wildcards ok).")
+    def computers_by_os(
+        self, info: Info, os: str, exclude_domain_controllers: bool = False, limit: int = 0
+    ) -> Computers:
+        ctx = _ctx(info)
+        return Computers.of(
+            find_computers_by_os(
+                ctx.require_conn(),
+                ctx.base,
+                os,
+                exclude_domain_controllers=exclude_domain_controllers,
+                limit=limit,
+            )
+        )
+
+    @strawberry.field(description="Disabled computer accounts (ACCOUNTDISABLE UAC flag).")
+    def disabled_computers(self, info: Info, limit: int = 0) -> Computers:
+        ctx = _ctx(info)
+        return Computers.of(find_disabled_computers(ctx.require_conn(), ctx.base, limit=limit))
+
     @strawberry.field(description="List domain controllers (DC computer accounts).")
     def domain_controllers(self, info: Info, limit: int = 0) -> Entries:
         ctx = _ctx(info)
@@ -447,6 +471,16 @@ class Query:
     def subnets(self, info: Info, limit: int = 0) -> Entries:
         ctx = _ctx(info)
         return Entries.of(list_subnets(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Get a single AD site by its cn (name).")
+    def site(self, info: Info, identifier: str) -> Entry:
+        ctx = _ctx(info)
+        return Entry(entry=get_site(ctx.require_conn(), ctx.base, identifier))
+
+    @strawberry.field(description="Get a single AD subnet by its cn (CIDR, e.g. 10.20.0.0/16).")
+    def subnet(self, info: Info, identifier: str) -> Entry:
+        ctx = _ctx(info)
+        return Entry(entry=get_subnet(ctx.require_conn(), ctx.base, identifier))
 
     @strawberry.field(description="AD site links (inter-site replication topology).")
     def site_links(self, info: Info, limit: int = 0) -> Entries:
