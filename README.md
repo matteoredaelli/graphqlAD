@@ -62,11 +62,14 @@ Authentication:
 uv sync
 ```
 
-The `msad` dependency is pulled from PyPI (`msad>=0.9`). Kerberos (SASL/GSSAPI)
-authentication is optional: `msad`'s `gssapi` dependency is a native extension
+The `msad` dependency is pulled from PyPI (`msad>=0.9`). Kerberos (SASL)
+authentication is optional, and `msad`'s `kerberos` extra installs a
+different backend per platform: `gssapi` on macOS/Linux, a native extension
 that needs the system Kerberos dev headers to build (e.g. `libkrb5-dev` +
 `krb5-config` on Debian/Ubuntu, `krb5-devel` on RHEL/Fedora, `krb5` via
-Homebrew on macOS). If you only authenticate with user/password, skip it
+Homebrew on macOS); on Windows, `winkerberos` instead, a prebuilt wheel that
+needs no system headers and wraps native SSPI for real SSO on a
+domain-joined machine. If you only authenticate with user/password, skip it
 entirely; to enable Kerberos, sync the `kerberos` extra instead:
 
 ```bash
@@ -124,8 +127,10 @@ uvx --from git+https://github.com/matteoredaelli/graphqlAD graphqlad
 ```
 
 All `MSAD_*` and `GRAPHQLAD_*` variables work exactly as above. Because `uvx`
-builds `msad` (and its `gssapi` C extension) in a fresh environment, the krb5
-development headers must be available on the host (see Install).
+builds `msad` (and, on macOS/Linux, its `gssapi` C extension) in a fresh
+environment, the krb5 development headers must be available on the host
+(see Install) — not needed on Windows, where `winkerberos` ships a prebuilt
+wheel instead.
 
 ## The schema
 
