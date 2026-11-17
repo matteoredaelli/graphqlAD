@@ -31,9 +31,12 @@ import strawberry
 from msad import (
     check_connection,
     find_admin_count_accounts,
+    find_admin_count_groups,
+    find_almost_locked_out,
     find_computers,
     find_computers_by_os,
     find_contacts,
+    find_credentials_in_description,
     find_disabled_computers,
     find_distribution_groups,
     find_empty_ous,
@@ -44,12 +47,14 @@ from msad import (
     find_must_change_password,
     find_never_expiring_accounts,
     find_not_delegated,
+    find_obsolete_os_computers,
     find_ous,
     find_password_not_required,
     find_recently_created,
     find_recently_modified,
     find_security_groups,
     find_service_accounts,
+    find_shadow_credentials,
     find_stale_computers,
     find_users,
     find_users_without_email,
@@ -274,6 +279,37 @@ class Query:
         ctx = _ctx(info)
         return Users.of(find_users_without_email(ctx.require_conn(), ctx.base, limit=limit))
 
+    @strawberry.field(
+        description="Enabled users whose badPwdCount is close to the lockout threshold."
+    )
+    def almost_locked_out(self, info: Info, threshold: int = 4, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(
+            find_almost_locked_out(ctx.require_conn(), ctx.base, threshold=threshold, limit=limit)
+        )
+
+    @strawberry.field(
+        description="Risk: users whose description may contain a plaintext credential."
+    )
+    def credentials_in_description(
+        self, info: Info, keyword: list[str] | None = None, limit: int = 0
+    ) -> Users:
+        ctx = _ctx(info)
+        return Users.of(
+            find_credentials_in_description(
+                ctx.require_conn(), ctx.base, keywords=keyword, limit=limit
+            )
+        )
+
+    @strawberry.field(
+        description="Risk: users with a msDS-KeyCredentialLink set (Shadow Credentials)."
+    )
+    def shadow_credentials_users(self, info: Info, limit: int = 0) -> Users:
+        ctx = _ctx(info)
+        return Users.of(
+            find_shadow_credentials(ctx.require_conn(), ctx.base, object_class="user", limit=limit)
+        )
+
     # ----- groups -------------------------------------------------------
     @strawberry.field(description="Search groups by cn/name/sAMAccountName/displayName.")
     def groups(self, info: Info, q: str = "*", limit: int = 0) -> Groups:
@@ -325,6 +361,13 @@ class Query:
     def distribution_groups(self, info: Info, limit: int = 0) -> Groups:
         ctx = _ctx(info)
         return Groups.of(find_distribution_groups(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(
+        description="Groups with adminCount=1 (current or stale protected-group marker)."
+    )
+    def admin_count_groups(self, info: Info, limit: int = 0) -> Groups:
+        ctx = _ctx(info)
+        return Groups.of(find_admin_count_groups(ctx.require_conn(), ctx.base, limit=limit))
 
     # ----- computers ----------------------------------------------------
     @strawberry.field(description="Find computers by name/dns/os (* wildcards ok).")
@@ -380,6 +423,22 @@ class Query:
     def disabled_computers(self, info: Info, limit: int = 0) -> Computers:
         ctx = _ctx(info)
         return Computers.of(find_disabled_computers(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Computers running a commonly-cited end-of-life Windows version.")
+    def obsolete_os_computers(self, info: Info, limit: int = 0) -> Computers:
+        ctx = _ctx(info)
+        return Computers.of(find_obsolete_os_computers(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(
+        description="Risk: computers with a msDS-KeyCredentialLink set (Shadow Credentials)."
+    )
+    def shadow_credentials_computers(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(
+            find_shadow_credentials(
+                ctx.require_conn(), ctx.base, object_class="computer", limit=limit
+            )
+        )
 
     @strawberry.field(description="List domain controllers (DC computer accounts).")
     def domain_controllers(self, info: Info, limit: int = 0) -> Entries:

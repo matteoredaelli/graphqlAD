@@ -13,7 +13,7 @@ dependencies = [
     "strawberry-graphql[fastapi]>=0.240",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "msad>=0.15.0",
+    "msad>=0.16.0",
 ]
 
 classifiers = [
@@ -34,7 +34,7 @@ classifiers = [
 # real SSO for a domain-joined user -- see msad's README). Skip this extra
 # if you only use user/password.
 kerberos = [
-    "msad[kerberos]>=0.15.0",
+    "msad[kerberos]>=0.16.0",
 ]
 
 [project.urls]
