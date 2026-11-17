@@ -64,13 +64,16 @@ uv sync
 
 The `msad` dependency is pulled from PyPI (`msad>=0.9`). Kerberos (SASL)
 authentication is optional, and `msad`'s `kerberos` extra installs a
-different backend per platform: `gssapi` on macOS/Linux, a native extension
-that needs the system Kerberos dev headers to build (e.g. `libkrb5-dev` +
-`krb5-config` on Debian/Ubuntu, `krb5-devel` on RHEL/Fedora, `krb5` via
-Homebrew on macOS); on Windows, `winkerberos` instead, a prebuilt wheel that
-needs no system headers and wraps native SSPI for real SSO on a
-domain-joined machine. If you only authenticate with user/password, skip it
-entirely; to enable Kerberos, sync the `kerberos` extra instead:
+different backend per platform:
+
+- macOS/Linux: `gssapi` (native extension; needs `libkrb5-dev` +
+  `krb5-config` on Debian/Ubuntu, `krb5-devel` on RHEL/Fedora, or `krb5`
+  via Homebrew on macOS).
+- Windows: `winkerberos` instead — prebuilt wheel, no system headers,
+  wraps native SSPI for real SSO on a domain-joined machine.
+
+If you only authenticate with user/password, skip it entirely; to enable
+Kerberos, sync the `kerberos` extra instead:
 
 ```bash
 uv sync --extra kerberos
