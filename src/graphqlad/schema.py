@@ -80,6 +80,8 @@ from msad import (
     list_fine_grained_password_policies,
     list_fsmo_roles,
     list_gpos,
+    list_replication_conflicts,
+    list_replication_connections,
     list_servers,
     list_site_links,
     list_sites,
@@ -91,6 +93,9 @@ from msad import (
 )
 from msad import (
     decode_entries as _decode_entries,
+)
+from msad import (
+    first_look as _first_look,
 )
 from msad.exceptions import MsadNotFoundError
 from msad.group import group_members
@@ -531,6 +536,23 @@ class Query:
     def fsmo_roles(self, info: Info) -> Entries:
         ctx = _ctx(info)
         return Entries.of(list_fsmo_roles(ctx.require_conn(), ctx.base))
+
+    @strawberry.field(description="AD replication topology (nTDSConnection), DCs/sites decoded.")
+    def replication_connections(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_replication_connections(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(description="Replication-conflict (CNF:) objects.")
+    def replication_conflicts(self, info: Info, limit: int = 0) -> Entries:
+        ctx = _ctx(info)
+        return Entries.of(list_replication_conflicts(ctx.require_conn(), ctx.base, limit=limit))
+
+    @strawberry.field(
+        description="One-call overview: domain, policy, FSMO, DCs, sites, trusts, replication."
+    )
+    def first_look(self, info: Info) -> Entry:
+        ctx = _ctx(info)
+        return Entry(entry=_first_look(ctx.require_conn(), ctx.base))
 
     @strawberry.field(description="Domain trust relationships.")
     def trusts(self, info: Info, limit: int = 0) -> Entries:

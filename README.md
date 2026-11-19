@@ -293,7 +293,8 @@ and avoiding repeated lookups of the same DN, plus not blocking the event loop
 - **Contacts** — `contacts`.
 - **OUs** (→ `Ou`) — `ous`, `ou`; `ouContents` (mixed object types).
 - **Audit** — `domainInfo`, `passwordPolicy`, `passwordPolicyViolations`
-  (→ `User`), `privilegedGroups` (→ `Group`), `fsmoRoles`, `trusts`, `sites`,
+  (→ `User`), `privilegedGroups` (→ `Group`), `fsmoRoles`, `replicationConnections`,
+  `replicationConflicts`, `firstLook`, `trusts`, `sites`,
   `gpos`, `gpo`, `fineGrainedPasswordPolicies`.
 
 ## Notes
