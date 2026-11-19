@@ -97,6 +97,9 @@ from msad import (
 from msad import (
     first_look as _first_look,
 )
+from msad import (
+    get_rootdse_info as _get_rootdse_info,
+)
 from msad.exceptions import MsadNotFoundError
 from msad.group import group_members
 from msad.user import (
@@ -553,6 +556,13 @@ class Query:
     def first_look(self, info: Info) -> Entry:
         ctx = _ctx(info)
         return Entry(entry=_first_look(ctx.require_conn(), ctx.base))
+
+    @strawberry.field(
+        description="rootDSE of the answering DC: naming contexts, functional levels, capabilities."
+    )
+    def rootdse(self, info: Info) -> Entry:
+        ctx = _ctx(info)
+        return Entry(entry=_get_rootdse_info(ctx.require_conn()))
 
     @strawberry.field(description="Domain trust relationships.")
     def trusts(self, info: Info, limit: int = 0) -> Entries:

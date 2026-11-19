@@ -95,6 +95,7 @@ def test_introspection_lists_expected_fields() -> None:
         "replicationConnections",
         "replicationConflicts",
         "firstLook",
+        "rootdse",
         "dnsZones",
         "dnsRecords",
         "authorizedDhcpServers",
